@@ -2,7 +2,7 @@ name: ArmanUser Messenger APK
 on:
   push:
     branches:
-      - armanuser-messenger-apk-build
+      - armanuser-telegram-v04
   workflow_dispatch:
 jobs:
   apk:
@@ -25,6 +25,6 @@ jobs:
         run: gradle --no-daemon assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: ArmanUser-Messenger-Demo-APK
+          name: ArmanUser-Telegram-v04-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
