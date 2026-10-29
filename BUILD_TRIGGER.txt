@@ -1,0 +1,1 @@
+Trigger GitHub Actions APK build for ArmanUser Messenger v0.3. No production Telegram API is connected.
