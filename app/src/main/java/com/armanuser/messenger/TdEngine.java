@@ -31,6 +31,10 @@ final class TdEngine {
     private Client client;
     private volatile boolean ready;
     private volatile boolean awaitingParameters;
+    private final Object loginGuard=new Object();
+    private volatile boolean phoneRequestPending=false;
+    private volatile String currentAuthStage="loading";
+    private volatile boolean countriesLoaded=false;
     private volatile int apiId;
     private volatile String apiHash = "";
     private final Map<Long, TdApi.Chat> chats = Collections.synchronizedMap(new HashMap<>());
@@ -90,7 +94,26 @@ final class TdEngine {
     void onWebReady() {
         if (ready) { emit("auth", "ready"); listChats(); }
         else if (awaitingParameters) emit("auth", "api");
-        else emit("status", "Telegram bağlantısı hazırlanıyor…");
+        else emit("auth", currentAuthStage);
+        loadCountries();
+    }
+    private void loadCountries(){
+        if(client==null||countriesLoaded)return;
+        countriesLoaded=true;
+        client.send(new TdApi.GetCountries(),r->{
+            if(!(r instanceof TdApi.Countries)) {countriesLoaded=false;return;}
+            JSONArray a=new JSONArray();
+            for(TdApi.CountryInfo c:((TdApi.Countries)r).countries) {
+                if(c.isHidden||c.callingCodes==null||c.callingCodes.length==0)continue;
+                for(String code:c.callingCodes) {
+                    try{a.put(new JSONObject().put("iso",c.countryCode)
+                         .put("name",c.englishName==null?c.name:c.englishName)
+                         .put("dial","+"+code));}catch(Exception ignored){}
+                }
+            }
+            try{emit(new JSONObject().put("type","countries").put("items",a));}
+            catch(Exception ignored){}
+        });
     }
     private void onUpdate(TdApi.Object o) {
         if (o instanceof TdApi.UpdateAuthorizationState) {
@@ -139,6 +162,20 @@ final class TdEngine {
         }
     }
     private void onAuth(TdApi.AuthorizationState state) {
+        // TDLib authorization state transitions, not timers, release the pending request.
+        synchronized(loginGuard) { phoneRequestPending=false; }
+        if(state instanceof TdApi.AuthorizationStateWaitPhoneNumber) {
+            currentAuthStage="phone";
+            loadCountries();
+        }else if(state instanceof TdApi.AuthorizationStateWaitCode)currentAuthStage="code";
+        else if(state instanceof TdApi.AuthorizationStateWaitPassword)currentAuthStage="password";
+        else if(state instanceof TdApi.AuthorizationStateWaitEmailAddress)currentAuthStage="email";
+        else if(state instanceof TdApi.AuthorizationStateWaitEmailCode)currentAuthStage="emailcode";
+        else if(state instanceof TdApi.AuthorizationStateWaitRegistration)currentAuthStage="register";
+        else if(state instanceof TdApi.AuthorizationStateWaitOtherDeviceConfirmation)currentAuthStage="otherdevice";
+        else if(state instanceof TdApi.AuthorizationStateReady)currentAuthStage="ready";
+        else if(state instanceof TdApi.AuthorizationStateWaitTdlibParameters)currentAuthStage="api";
+        else currentAuthStage="loading";
         if(state instanceof TdApi.AuthorizationStateWaitTdlibParameters) {
             awaitingParameters=true;
             if(apiId>0 && apiHash.length()>5) configure();
@@ -191,7 +228,7 @@ final class TdEngine {
         p.systemLanguageCode = "tr";
         p.deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
         p.systemVersion = Build.VERSION.RELEASE;
-        p.applicationVersion = "0.9.0";
+        p.applicationVersion = "0.11.0";
         emit("auth", "loading");
         send(p, result -> {
             if(result instanceof TdApi.Error) { awaitingParameters=true; emit("auth", "api"); }
@@ -201,7 +238,32 @@ final class TdEngine {
         String v=value==null?"":value.trim();
         if(v.isEmpty()) { emit("error", "Alan boş bırakılamaz"); return; }
         switch(mode) {
-            case "phone": { TdApi.SetAuthenticationPhoneNumber a=new TdApi.SetAuthenticationPhoneNumber(); a.phoneNumber=v; send(a); break; }
+            case "phone": {
+                String number=v.replaceAll("[\\s()\\-]", "");
+                if(!number.matches("\\+[1-9][0-9]{6,14}")){
+                    emit("error","Numarayı +ülke kodu ile gir (+994..., +90..., +1...).");return;
+                }
+                synchronized(loginGuard){
+                    if(phoneRequestPending){emit("error","Önceki doğrulama isteği henüz tamamlanmadı.");return;}
+                    if(!"phone".equals(currentAuthStage)){emit("error","Telegram henüz telefon numarası istemiyor.");return;}
+                    phoneRequestPending=true;
+                }
+                TdApi.SetAuthenticationPhoneNumber request=new TdApi.SetAuthenticationPhoneNumber();
+                request.phoneNumber=number;
+                if(client==null){synchronized(loginGuard){phoneRequestPending=false;}emit("error","Telegram bağlantısı hazır değil");return;}
+                client.send(request,result -> {
+                    if(result instanceof TdApi.Error){
+                        synchronized(loginGuard){phoneRequestPending=false;}
+                        String problem=((TdApi.Error)result).message;
+                        if(problem.contains("Another authorization query")){
+                            emit("error","Önceki giriş isteği sürüyor. Tekrar basmadan önce Telegram'ın yanıtını bekle.");
+                        }else emit("error",problem);
+                        emit("authRetry","phone");
+                    }
+                    // Successful requests remain locked until TDLib changes the auth state.
+                });
+                break;
+            }
             case "code": send(new TdApi.CheckAuthenticationCode(v)); break;
             case "password": send(new TdApi.CheckAuthenticationPassword(value)); break;
             case "email": send(new TdApi.SetAuthenticationEmailAddress(v)); break;
