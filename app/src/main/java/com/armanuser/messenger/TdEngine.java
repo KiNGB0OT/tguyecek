@@ -37,6 +37,7 @@ final class TdEngine {
     private volatile String authorizationPhase = "loading";
     private final AtomicBoolean authorizationRequestPending = new AtomicBoolean(false);
     private volatile boolean countryRequestPending = false;
+    private volatile String latestConnection = "Bağlantı durumu kontrol ediliyor";
     private final Map<Long, TdApi.Chat> chats = Collections.synchronizedMap(new HashMap<>());
     private final Map<Long, Boolean> bots = Collections.synchronizedMap(new HashMap<>());
     private final Map<Long, TdApi.User> cachedSenders = Collections.synchronizedMap(new HashMap<>());
@@ -94,7 +95,7 @@ final class TdEngine {
     void onWebReady() {
         if (ready) { emit("auth", "ready"); listChats(); }
         else if (awaitingParameters) emit("auth", "api");
-        else if ("phone".equals(authorizationPhase)) { emit("auth","phone"); requestCountries(); }
+        else if ("phone".equals(authorizationPhase)) { emit("auth","phone"); checkConnection(); }
         else if(!"loading".equals(authorizationPhase)) emit("auth",authorizationPhase);
         else emit("status", "Telegram bağlantısı hazırlanıyor…");
     }
@@ -141,8 +142,28 @@ final class TdEngine {
             try { obj.put("type", "message"); } catch(Exception ignored){}
             emit(obj);
         } else if (o instanceof TdApi.UpdateConnectionState) {
-            emit("status", "Bağlantı: " + ((TdApi.UpdateConnectionState)o).state.getClass().getSimpleName().replace("ConnectionState", ""));
+            connectionUpdate(((TdApi.UpdateConnectionState)o).state);
         }
+    }
+    private String connectionDescription(TdApi.ConnectionState state) {
+        if(state instanceof TdApi.ConnectionStateReady) return "Telegram sunucusuna bağlı";
+        if(state instanceof TdApi.ConnectionStateConnecting) return "Telegram sunucusuna bağlanılıyor…";
+        if(state instanceof TdApi.ConnectionStateConnectingToProxy) return "Proxy bağlantısı kuruluyor…";
+        if(state instanceof TdApi.ConnectionStateUpdating) return "Telegram bağlantısı güncelleniyor…";
+        if(state instanceof TdApi.ConnectionStateWaitingForNetwork) return "İnternet bağlantısı bekleniyor";
+        return "Bağlantı durumu bilinmiyor";
+    }
+    private void connectionUpdate(TdApi.ConnectionState state) {
+        latestConnection=connectionDescription(state);
+        emit("connection",latestConnection);
+    }
+    void checkConnection() {
+        if(client==null){ emit("connection","Telegram motoru başlatılamadı");return; }
+        client.send(new TdApi.GetConnectionState(),r -> {
+            if(r instanceof TdApi.ConnectionState)connectionUpdate((TdApi.ConnectionState)r);
+            else if(r instanceof TdApi.Error) emit("connection","Bağlantı kontrolü başarısız: "+((TdApi.Error)r).message);
+        });
+        emit("authStatus", authorizationPhase);
     }
     private void onAuth(TdApi.AuthorizationState state) {
         String phase="loading";
@@ -165,7 +186,7 @@ final class TdEngine {
             else emit("auth", "api");
         } else if(state instanceof TdApi.AuthorizationStateWaitPhoneNumber) {
             emit("auth", "phone");
-            requestCountries();
+            checkConnection();
         } else if(state instanceof TdApi.AuthorizationStateWaitCode) {
             emit("auth", "code");
         } else if(state instanceof TdApi.AuthorizationStateWaitPassword) {
@@ -212,7 +233,7 @@ final class TdEngine {
         p.systemLanguageCode = "tr";
         p.deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
         p.systemVersion = Build.VERSION.RELEASE;
-        p.applicationVersion = "0.11.0";
+        p.applicationVersion = "0.12.0";
         emit("auth", "loading");
         send(p, result -> {
             if(result instanceof TdApi.Error) { awaitingParameters=true; emit("auth", "api"); }
@@ -278,7 +299,8 @@ final class TdEngine {
                 case "register":request=new TdApi.RegisterUser(v,extra==null?"":extra,false);break;
                 default:authorizationRequestPending.set(false);return;
             }
-            emit("authPending","Telegram yanıtı bekleniyor…");
+            checkConnection();
+            emit("authPending","Telegram isteği gönderildi. Sunucu yanıtı bekleniyor…");
             client.send(request,result -> {
                 if(result instanceof TdApi.Error){
                     authorizationRequestPending.set(false);
@@ -288,7 +310,11 @@ final class TdEngine {
                     }else emit("error","Telegram giriş hatası: "+error);
                     emit("authFailed",mode);
                 }else if(result instanceof TdApi.Ok) {
-                    emit("authPending","Telegram doğrulama aşamasına geçiliyor…");
+                    emit("authPending","Telegram isteği kabul edildi; doğrulama aşaması bekleniyor…");
+                } else {
+                    authorizationRequestPending.set(false);
+                    emit("error","Telegram beklenmeyen bir yanıt verdi: "+result.getClass().getSimpleName());
+                    emit("authFailed",mode);
                 }
             });
         }catch(Exception ex){
