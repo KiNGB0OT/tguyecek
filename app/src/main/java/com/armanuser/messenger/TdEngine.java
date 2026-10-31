@@ -191,7 +191,7 @@ final class TdEngine {
         p.systemLanguageCode = "tr";
         p.deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
         p.systemVersion = Build.VERSION.RELEASE;
-        p.applicationVersion = "0.6.0";
+        p.applicationVersion = "0.9.0";
         emit("auth", "loading");
         send(p, result -> {
             if(result instanceof TdApi.Error) { awaitingParameters=true; emit("auth", "api"); }
@@ -211,7 +211,7 @@ final class TdEngine {
     }
     void listChats() {
         if(!ready) return;
-        send(new TdApi.LoadChats(new TdApi.ChatListMain(), 80), result -> { publishChats(); });
+        send(new TdApi.LoadChats(new TdApi.ChatListMain(), 300), result -> { publishChats(); });
         publishChats();
     }
     private void loadUserType(TdApi.Chat chat) {
@@ -270,7 +270,7 @@ final class TdEngine {
         snapshot.sort((a,b) -> Long.compare(b.lastMessage==null?0:b.lastMessage.date, a.lastMessage==null?0:a.lastMessage.date));
         JSONArray arr=new JSONArray(); int count=0;
         for(TdApi.Chat c:snapshot) {
-            if(count++>=80)break;
+            if(count++>=300)break;
             loadAvatar(c);
             try {JSONObject item=new JSONObject(); item.put("id", String.valueOf(c.id)); item.put("title", c.title); item.put("last", c.lastMessage==null?"":messageText(c.lastMessage)); item.put("date", c.lastMessage==null?0:c.lastMessage.date); item.put("unread", c.unreadCount); item.put("mentions",c.unreadMentionCount); item.put("kind",kindOf(c)); item.put("pinned",isPinned(c)); item.put("markedUnread",c.isMarkedAsUnread); item.put("muted",c.notificationSettings!=null && c.notificationSettings.muteFor>0); arr.put(item);}catch(Exception ignored){}
         }
@@ -280,6 +280,8 @@ final class TdEngine {
         if(m==null) return "";
         if(m.content instanceof TdApi.MessageText) return ((TdApi.MessageText)m.content).text.text;
         if(m.content instanceof TdApi.MessagePhoto) return "📷 Fotoğraf";
+        if(m.content instanceof TdApi.MessageAnimation) return "🎞 GIF";
+        if(m.content instanceof TdApi.MessageSticker) return "🎨 Çıkartma";
         if(m.content instanceof TdApi.MessageVideo) return "▶ Video";
         if(m.content instanceof TdApi.MessageVoiceNote) return "🎙 Sesli mesaj";
         if(m.content instanceof TdApi.MessageDocument) return "📎 Dosya";
@@ -367,19 +369,150 @@ final class TdEngine {
         } catch(Exception ignored) {}
         return j;
     }
-    void getHistory(String chatId) {
+    void openChat(String chatId) {
+        if(!ready)return;
         try {
             long id=Long.parseLong(chatId);
-            TdApi.GetChatHistory request = new TdApi.GetChatHistory(); request.chatId=id;request.limit=50;
-            send(request, result -> {
+            send(new TdApi.OpenChat(id));
+        }catch(Exception ex){emit("error","Sohbet açılamadı");}
+    }
+    void closeChat(String chatId) {
+        try{send(new TdApi.CloseChat(Long.parseLong(chatId)));}catch(Exception ignored){}
+    }
+    void getHistory(String chatId) { getHistory(chatId,"0"); }
+    void getHistory(String chatId,String fromId) {
+        if(!ready)return;
+        try {
+            long chat=Long.parseLong(chatId),from=Long.parseLong(fromId);
+            TdApi.GetChatHistory request=new TdApi.GetChatHistory(chat,from,0,80,false);
+            send(request,result -> {
                 if(result instanceof TdApi.Messages) {
-                    JSONArray arr=new JSONArray();
                     TdApi.Message[] ms=((TdApi.Messages)result).messages;
+                    JSONArray arr=new JSONArray();
                     for(int i=ms.length-1;i>=0;i--) arr.put(messageJson(ms[i]));
-                    try {emit(new JSONObject().put("type","history").put("chat",chatId).put("items",arr));}catch(Exception ignored){}
+                    String oldest=ms.length>0 ? String.valueOf(ms[ms.length-1].id) : fromId;
+                    try {
+                        emit(new JSONObject().put("type",from==0?"history":"historyOlder")
+                             .put("chat",chatId).put("items",arr).put("oldest",oldest)
+                             .put("hasMore",ms.length>0));
+                    }catch(Exception ignored){}
+                    if(from==0 && ms.length>0) {
+                        long[] visible=new long[ms.length];
+                        for(int i=0;i<ms.length;i++) visible[i]=ms[i].id;
+                        send(new TdApi.ViewMessages(chat,visible,null,false));
+                        send(new TdApi.ReadAllChatMentions(chat));
+                    }
                 }
             });
-        }catch(NumberFormatException ex){emit("error","Sohbet ID geçersiz");}
+        } catch(Exception ex) {emit("error","Sohbet geçmişi alınamadı");}
+    }
+    void readVisible(String chatId,String[] messageIds){
+        if(!ready||messageIds==null||messageIds.length==0)return;
+        try {
+            long[] ids=new long[messageIds.length];
+            for(int i=0;i<ids.length;i++)ids[i]=Long.parseLong(messageIds[i]);
+            send(new TdApi.ViewMessages(Long.parseLong(chatId),ids,null,false));
+        }catch(Exception ignored){}
+    }
+    void loadMediaPalette(String kind) {
+        if(!ready)return;
+        if("sticker".equals(kind)) {
+            send(new TdApi.GetRecentStickers(false),r -> {
+                if(r instanceof TdApi.Stickers) {
+                    JSONArray a=new JSONArray();
+                    for(TdApi.Sticker sticker:((TdApi.Stickers)r).stickers) {
+                        try {
+                            JSONObject j=new JSONObject().put("id",sticker.sticker.id)
+                                .put("label",sticker.emoji==null?"🎨":sticker.emoji);
+                            a.put(j);
+                        }catch(Exception ignored){}
+                    }
+                    try{emit(new JSONObject().put("type","palette").put("kind","sticker").put("items",a));}catch(Exception ignored){}
+                }
+            });
+        }else if("gif".equals(kind)){
+            send(new TdApi.GetSavedAnimations(),r -> {
+                if(r instanceof TdApi.Animations) {
+                    JSONArray a=new JSONArray();
+                    for(TdApi.Animation animation:((TdApi.Animations)r).animations) {
+                        try{a.put(new JSONObject().put("id",animation.animation.id)
+                               .put("label",animation.fileName==null?"GIF":animation.fileName));}
+                        catch(Exception ignored){}
+                    }
+                    try{emit(new JSONObject().put("type","palette").put("kind","gif").put("items",a));}catch(Exception ignored){}
+                }
+            });
+        }
+    }
+    void sendSavedMedia(String chatId,String kind,int fileId) {
+        if(!ready)return;
+        try{
+            TdApi.InputMessageContent payload;
+            TdApi.InputFileId file=new TdApi.InputFileId(fileId);
+            if("sticker".equals(kind)) {
+                TdApi.InputMessageSticker sticker=new TdApi.InputMessageSticker();
+                sticker.sticker=file;
+                payload=sticker;
+            }else if("gif".equals(kind)){
+                TdApi.InputMessageAnimation animation=new TdApi.InputMessageAnimation();
+                animation.animation=file;
+                payload=animation;
+            }else{return;}
+            TdApi.SendMessage request=new TdApi.SendMessage();
+            request.chatId=Long.parseLong(chatId);
+            request.inputMessageContent=payload;
+            send(request,r->{if(r instanceof TdApi.Message){
+                JSONObject j=messageJson((TdApi.Message)r);
+                try{j.put("type","message");emit(j);}catch(Exception ignored){}
+            }});
+        }catch(Exception e){emit("error","Medya gönderilemedi");}
+    }
+    void sendMedia(String chatId,String filePath,String kind,int ttlSeconds) {
+        if(!ready)return;
+        try {
+            java.io.File file=new java.io.File(filePath);
+            if(!file.isFile()||file.length()<1){emit("error","Dosya bulunamadı");return;}
+            TdApi.InputFileLocal local=new TdApi.InputFileLocal(file.getAbsolutePath());
+            TdApi.InputMessageContent payload;
+            if("photo".equals(kind)){
+                TdApi.InputMessagePhoto photo=new TdApi.InputMessagePhoto();
+                photo.photo=local;
+                if(ttlSeconds!=0) photo.selfDestructType = ttlSeconds==-1
+                    ? new TdApi.MessageSelfDestructTypeImmediately()
+                    : new TdApi.MessageSelfDestructTypeTimer(ttlSeconds);
+                payload=photo;
+            }else if("video".equals(kind)){
+                TdApi.InputMessageVideo video=new TdApi.InputMessageVideo();
+                video.video=local;
+                if(ttlSeconds!=0) video.selfDestructType = ttlSeconds==-1
+                    ? new TdApi.MessageSelfDestructTypeImmediately()
+                    : new TdApi.MessageSelfDestructTypeTimer(ttlSeconds);
+                payload=video;
+            }else if("gif".equals(kind)){
+                if(ttlSeconds!=0){emit("error","Süreli medya yalnızca fotoğraf veya videoda desteklenir");return;}
+                TdApi.InputMessageAnimation animation=new TdApi.InputMessageAnimation();
+                animation.animation=local;
+                payload=animation;
+            }else if("sticker".equals(kind)){
+                TdApi.InputMessageSticker sticker=new TdApi.InputMessageSticker();
+                sticker.sticker=local;
+                payload=sticker;
+            }else{
+                TdApi.InputMessageDocument document=new TdApi.InputMessageDocument();
+                document.document=local;
+                payload=document;
+            }
+            TdApi.SendMessage req=new TdApi.SendMessage();
+            req.chatId=Long.parseLong(chatId);
+            req.inputMessageContent=payload;
+            send(req,result -> {
+                if(result instanceof TdApi.Message){
+                    JSONObject j=messageJson((TdApi.Message)result);
+                    try{j.put("type","message");emit(j);}catch(Exception ignored){}
+                    emit("mediaSent","Dosya gönderiliyor");
+                }
+            });
+        }catch(Exception ex){emit("error","Medya gönderme hatası: "+ex.getMessage());}
     }
     void sendText(String chatId,String text) {
         if(!ready || text==null || text.trim().isEmpty()) return;
