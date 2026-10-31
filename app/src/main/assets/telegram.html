@@ -72,11 +72,116 @@ body.dark{--ar-ink:#eff5ff;--ar-muted:#a0b3cf;--ar-card:rgba(28,46,76,.82);--ar-
 .ar-compose-bar input{height:48px;min-height:48px;font-size:16px;touch-action:manipulation}
 .ar-compose-bar button{width:48px;height:48px;min-width:48px;min-height:48px}
 .ar-chathead{position:relative;z-index:6;flex:none}
+
+.ar-phone-hint{font-size:12px;color:var(--muted);line-height:1.5;margin:5px 0 14px}
+#arman-country{display:block;width:100%;height:49px;border-radius:15px;border:1px solid var(--edge);background:var(--glass);color:var(--ink);padding:0 12px;font-size:14px;margin-bottom:15px;outline:none}
+.ar-auth-feedback{font-size:12px;min-height:19px;margin:12px 0 0;color:var(--muted);line-height:1.5}
 </style></head><body><div class="bg"><i class="orb"></i><i class="orb b"></i><i class="orb c"></i></div><div id="app" class="app"></div>
 <script>
-(() => {const n=window.TelegramNative;let stage='loading', current=null, title='', items=[], messages=[], q='', tab='chats', name='', dark=localStorage.getItem('arm-dark')==='1';if(dark)document.body.classList.add('dark');const root=document.getElementById('app');let toastTimer;function e(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}function icon(){return `<span class="logo">A</span>`;}function head(){return `<header class="top"><div class="brand">${icon()}<span>ArmanUser</span></div><button class="pill" id="theme">${dark?'☀️':'🌙'}</button></header>`;}function connectClicks(){const t=document.getElementById('theme');if(t)t.onclick=()=>{dark=!dark;localStorage.setItem('arm-dark',dark?'1':'0');document.body.classList.toggle('dark',dark);n.theme(dark);render();};}function notify(t){let old=document.getElementById('toast');if(old)old.remove();const x=document.createElement('div');x.className='toast';x.id='toast';x.textContent=t;root.append(x);clearTimeout(toastTimer);toastTimer=setTimeout(()=>x.remove(),4200);}
-function login(){let title='',desc='',fields='',action='';if(stage==='loading'){root.innerHTML=head()+`<div class="panel glass"><div class="spinner">Telegram bağlantısı hazırlanıyor…</div></div>`;connectClicks();return;}if(stage==='api'){title='Telegram API bağlantısı';desc='Bu resmi olmayan istemci için Telegram uygulama kimliğini bir kez gir. Bilgiler yalnızca telefonunda Android Keystore ile şifrelenerek saklanır.';fields=`<label>API ID</label><input name="id" type="number" inputmode="numeric" value="20672652" required placeholder="API ID"><label>API Hash</label><input name="hash" autocapitalize="none" autocomplete="off" required placeholder="32 karakterlik API Hash">`;action='API bilgilerini kaydet';}if(stage==='phone'){title='Telefon numaran';desc='Telegram hesabının telefon numarasını uluslararası biçimde gir.';fields=`<label>Telefon numarası</label><input name="value" type="tel" inputmode="tel" required placeholder="+90 5xx xxx xx xx">`;action='Doğrulama kodu iste';}if(stage==='code'){title='Doğrulama kodu';desc='Telegram uygulamasına veya numarana gelen kodu gir. Bu kod sadece Telegram sunucularına TDLib üzerinden gönderilir.';fields=`<label>Telegram kodu</label><input name="value" inputmode="numeric" autocomplete="one-time-code" required placeholder="Doğrulama kodu">`;action='Doğrula';}if(stage==='password'){title='İki aşamalı doğrulama';desc='Telegram hesabın için belirlediğin iki aşamalı doğrulama parolasını gir.';fields=`<label>Telegram parolan</label><input name="value" type="password" required placeholder="Parola">`;action='Giriş yap';}if(stage==='email'){title='E-posta doğrulama';desc='Telegram giriş için e-posta adresi talep ediyor.';fields=`<label>E-posta</label><input name="value" type="email" required placeholder="E-posta adresi">`;action='Devam';}if(stage==='emailcode'){title='E-posta kodu';desc='Telegram tarafından gönderilen e-posta kodunu gir.';fields=`<label>E-posta kodu</label><input name="value" required placeholder="Doğrulama kodu">`;action='Doğrula';}if(stage==='register'){title='Telegram kaydı';desc='Yeni hesap oluşturmak için adını gir.';fields=`<label>Ad</label><input name="value" required placeholder="Ad"><label>Soyad (isteğe bağlı)</label><input name="extra" placeholder="Soyad">`;action='Hesap oluştur';}if(stage==='otherdevice'){title='Telegram onayı';desc='Başka bir cihazdaki Telegram uygulaman üzerinden oturum açma isteğini onayla.';action='Bekleniyor';}
-root.innerHTML=head()+`<main class="view"><section class="panel glass"><div class="title">${title}</div><p class="desc">${desc}</p><form id="login">${fields}<button class="primary" type="submit" ${stage==='otherdevice'?'disabled':''}>${action}</button></form>${stage==='api'?`<p class="info" style="margin-top:20px">API ID ve API Hash almak için telefon tarayıcında <b>my.telegram.org</b> adresinden <b>API development tools</b> bölümüne gir. <strong>Bu bilgileri bu sohbet üzerinden paylaşma.</strong></p>`:''}</section><div class="note">Bu bir Telegram istemcisidir, resmi Telegram uygulaması değildir. ARMAN AI henüz bağlı değildir.</div></main>`;connectClicks();const f=document.getElementById('login');f.onsubmit=ev=>{ev.preventDefault();const d=new FormData(f);if(stage==='api'){n.saveApi(d.get('id'),d.get('hash'));}else n.submit(stage,d.get('value')||'',d.get('extra')||'');f.querySelector('button').disabled=true;setTimeout(()=>{const b=f.querySelector('button');if(b)b.disabled=false;},2500);};}
+(() => {const n=window.TelegramNative;let stage='loading', current=null, title='', items=[], messages=[], q='', tab='chats', name='', dark=localStorage.getItem('arm-dark')==='1';if(dark)document.body.classList.add('dark');const root=document.getElementById('app');let toastTimer;
+let authSubmitting=false,worldCountries=[],authCountryCode=localStorage.getItem('arman-country')||'';
+const globalPhoneHint='Uluslararası numara: +994 51 485 84 96 / +90 5xx ... / +1 ...';
+function e(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}function icon(){return `<span class="logo">A</span>`;}function head(){return `<header class="top"><div class="brand">${icon()}<span>ArmanUser</span></div><button class="pill" id="theme">${dark?'☀️':'🌙'}</button></header>`;}function connectClicks(){const t=document.getElementById('theme');if(t)t.onclick=()=>{dark=!dark;localStorage.setItem('arm-dark',dark?'1':'0');document.body.classList.toggle('dark',dark);n.theme(dark);render();};}function notify(t){let old=document.getElementById('toast');if(old)old.remove();const x=document.createElement('div');x.className='toast';x.id='toast';x.textContent=t;root.append(x);clearTimeout(toastTimer);toastTimer=setTimeout(()=>x.remove(),4200);}
+
+function countryFlag(iso){try{return String.fromCodePoint(...iso.toUpperCase().split('').map(c=>c.charCodeAt(0)+127397));}catch(_){return '🌐';}}
+function countryOptions(){
+ const seen=new Set();
+ const list=worldCountries.filter(c=>c&&c.callingCode&&c.iso).sort((a,b)=>String(a.english||a.name).localeCompare(String(b.english||b.name),'en'));
+ return '<option value="">Ülke seç (isteğe bağlı) • Select country</option>'+
+ list.filter(c=>{const key=c.iso+'-'+c.callingCode;if(seen.has(key))return false;seen.add(key);return true;})
+ .map(c=>'<option value="'+e(c.callingCode)+'" '+(String(c.callingCode)===String(authCountryCode)?'selected':'')+'>'+countryFlag(c.iso)+' '+e(c.english||c.name)+' (+'+e(c.callingCode)+')</option>').join('');
+}
+function refreshCountryOptions(){
+ const sel=document.getElementById('arman-country');
+ if(!sel)return;
+ const old=sel.value||authCountryCode;
+ sel.innerHTML=countryOptions();
+ if(old&&[...sel.options].some(o=>o.value===old))sel.value=old;
+}
+function login(){
+ let title='',desc='',fields='',action='';
+ if(stage==='loading'){
+   root.innerHTML=head()+'<div class="panel glass"><div class="spinner">Telegram bağlantısı hazırlanıyor…</div></div>';
+   connectClicks();return;
+ }
+ if(stage==='api'){
+   title='Telegram API bağlantısı';
+   desc='Uygulama geliştirici kimliği yapılandırılmamış. Bu bilgi normal kullanıcılardan istenmez.';
+   fields='<label>API ID</label><input name="id" type="number" inputmode="numeric" required placeholder="API ID"><label>API Hash</label><input name="hash" autocapitalize="none" autocomplete="off" required placeholder="API Hash">';
+   action='API bilgilerini kaydet';
+ }
+ if(stage==='phone'){
+   title='Telegram hesabına giriş';
+   desc='Dünyanın her ülkesinden numarayla giriş yapabilirsin. Ülke seç veya telefon numaranı +uluslararası koduyla doğrudan yaz.';
+   fields='<label>Ülke / Country</label><select id="arman-country" aria-label="Ülke / Country">'+countryOptions()+'</select>'+
+     '<label>Telefon / Phone</label><input name="value" type="tel" inputmode="tel" autocomplete="tel" required placeholder="+994 51 485 84 96" aria-label="Uluslararası telefon numarası">'+
+     '<p class="ar-phone-hint">'+globalPhoneHint+'</p>';
+   action='Kod iste / Send code';
+ }
+ if(stage==='code'){
+   title='Doğrulama kodu';
+   desc='Kod Telegram uygulamasına, SMS ile veya hesabının güvenlik ayarlarına bağlı başka bir yöntemle gönderilir.';
+   fields='<label>Doğrulama kodu</label><input name="value" inputmode="numeric" autocomplete="one-time-code" required placeholder="Kod">';
+   action='Doğrula';
+ }
+ if(stage==='password'){
+   title='İki aşamalı doğrulama';desc='Telegram hesabın için belirlediğin iki aşamalı doğrulama parolasını gir.';
+   fields='<label>Telegram parolan</label><input name="value" type="password" autocomplete="current-password" required placeholder="Parola">';
+   action='Giriş yap';
+ }
+ if(stage==='email'){
+   title='E-posta doğrulama';desc='Telegram giriş için e-posta adresi talep ediyor.';
+   fields='<label>E-posta</label><input name="value" type="email" required placeholder="E-posta adresi">';action='Devam';
+ }
+ if(stage==='emailcode'){
+   title='E-posta kodu';desc='Telegram tarafından gönderilen e-posta kodunu gir.';
+   fields='<label>E-posta kodu</label><input name="value" inputmode="numeric" required placeholder="Doğrulama kodu">';action='Doğrula';
+ }
+ if(stage==='register'){
+   title='Telegram kaydı';desc='Yeni hesap oluşturmak için adını gir.';
+   fields='<label>Ad</label><input name="value" required placeholder="Ad"><label>Soyad (isteğe bağlı)</label><input name="extra" placeholder="Soyad">';
+   action='Hesap oluştur';
+ }
+ if(stage==='otherdevice'){title='Telegram onayı';desc='Başka bir cihazdaki Telegram uygulaman üzerinden oturum açma isteğini onayla.';action='Bekleniyor';}
+ root.innerHTML=head()+
+   '<main class="view"><section class="panel glass"><div class="title">'+e(title)+'</div><p class="desc">'+e(desc)+'</p>'+
+   '<form id="login">'+fields+'<button id="arman-login-submit" class="primary" type="submit" '+(stage==='otherdevice'||authSubmitting?'disabled':'')+'>'+e(action)+'</button>'+
+   '<p class="ar-auth-feedback" id="ar-auth-feedback" aria-live="polite">'+(authSubmitting?'Telegram yanıtı bekleniyor…':'')+'</p></form></section>'+
+   '<div class="note">ArmanUser Messenger bağımsız bir Telegram istemcisidir. Telegram tarafından resmî olarak geliştirilmemiştir.</div></main>';
+ connectClicks();
+ const form=document.getElementById('login');
+ const sel=document.getElementById('arman-country');
+ if(sel)sel.onchange=()=>{authCountryCode=sel.value;localStorage.setItem('arman-country',authCountryCode);};
+ if(!form)return;
+ form.onsubmit=ev=>{
+   ev.preventDefault();
+   if(authSubmitting)return;
+   const formData=new FormData(form);
+   if(stage==='api') {
+     authSubmitting=true;
+     n.saveApi(formData.get('id')||'',formData.get('hash')||'');
+   }else {
+     let value=String(formData.get('value')||'');
+     if(stage==='phone'){
+       value=value.replace(/[ \t\r\n()\u00a0\-]/g,'');
+       const code=sel?sel.value:'';
+       if(!value.startsWith('+')){
+         if(!code){notify('Ülke seç veya numarayı +ülke koduyla yaz.');return;}
+         value='+'+code+value.replace(/^0+/,'');
+       }
+       if(!/^\+[1-9][0-9]{6,14}$/.test(value)){
+         notify('Uluslararası numara geçersiz. Örnek: +994514858496');return;
+       }
+     }
+     authSubmitting=true;
+     n.submit(stage,value,String(formData.get('extra')||''));
+   }
+   const button=document.getElementById('arman-login-submit');
+   if(button)button.disabled=true;
+   const msg=document.getElementById('ar-auth-feedback');
+   if(msg)msg.textContent='Telegram yanıtı bekleniyor…';
+ };
+}
 // ArmanUser v0.5 — Telegram kategori/favori/sabit/etiketli sohbetler
 const glyphs={
 chat:'<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8A8.5 8.5 0 0 1 12.5 20a8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7A8.5 8.5 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5Z"/>',
@@ -280,8 +385,27 @@ function bindPalette(){
 }
 
 window.onTdEvent=function(v){
- if(v.type==='auth'){stage=v.value;if(stage!=='ready'){current=null;tab='chats';}render();}
- else if(v.type==='error'){notify('Telegram: '+v.value);historyBusy=false;}
+ if(v.type==='auth'){
+   const changed=stage!==v.value;
+   stage=v.value;
+   if(changed)authSubmitting=false;
+   if(stage!=='ready'){current=null;tab='chats';}
+   if(changed||!document.getElementById('login'))render();
+   if(stage==='phone')n.countries();
+ }
+ else if(v.type==='error'){
+   notify('Telegram: '+v.value);historyBusy=false;
+   if(stage!=='ready'){authSubmitting=false;const b=document.getElementById('arman-login-submit');if(b)b.disabled=false;
+     const m=document.getElementById('ar-auth-feedback');if(m)m.textContent=v.value||'Giriş hatası';}
+ }
+ else if(v.type==='countries'){worldCountries=v.items||[];refreshCountryOptions();}
+ else if(v.type==='authPending'){
+   const m=document.getElementById('ar-auth-feedback');if(m)m.textContent=v.value||'Telegram yanıtı bekleniyor…';
+ }
+ else if(v.type==='authFailed'){
+   authSubmitting=false;
+   const b=document.getElementById('arman-login-submit');if(b)b.disabled=false;
+ }
  else if(v.type==='status'){if(stage==='otherdevice')notify(v.value);}
  else if(v.type==='mediaSent'){notify('Medya gönderiliyor…');}
  else if(v.type==='me'){name=v.value;if(stage==='ready'&&!current&&tab==='profile')render();}
