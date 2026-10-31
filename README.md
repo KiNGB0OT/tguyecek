@@ -1,11 +1,23 @@
-# ArmanUser Messenger APK demo v0.3
+# ArmanUser Messenger v0.5 — Liquid Glass Categories
 
-Android offline WebView UI demo with functional swipes, chats, settings and Liquid Glass effects.
+Android Telegram client beta using TDLib with original iOS-inspired Liquid Glass design.
 
-**No real Telegram authentication/messages or ARMAN AI service connection.** This demo uses simulated users and localStorage. No INTERNET permission requested.
+## Implemented
+- Phone, verification code, 2-step password and other TDLib authentication states
+- Real Telegram private dialogs, group chats, channels and bot chats separated by chat type
+- Local favorites and local pinned chats via long press / swipe, saved in WebView localStorage
+- Unread mentions in group chats, based on TDLib unreadMentionCount (not a lifetime mention history)
+- Telegram real chat photos via TDLib DownloadFile, with initials as fallback
+- Real text conversation history and sending; theme, search, unread and pinned filters
+- Mobile-friendly horizontal scroll category row and bottom navigation
 
-Build: GitHub Actions workflow `ArmanUser Messenger APK` or Android Studio with Android SDK 35.
+## Not implemented
+- Bot-managed groups: requires private, authenticated ARMAN USERBOT PRO mobile API
+- ARMAN AI, media send/playback, full Telegram calls, notifications and official-grade client feature parity
+- No physical-device login test; Gradle successful means builds, not functionality validation
 
-GitHub Actions > ArmanUser Messenger APK > successful run > Artifacts > ArmanUser-Messenger-Demo-APK.
+## Build
+GitHub Actions workflow `ArmanUser Messenger v0.5 APK`. Install debug APK extracted from artifacts. The API ID is prefilled from user-supplied project settings; API Hash is never committed and must be entered once locally.
 
-Source based on ArmanUser Messenger v0.3 interactive prototype supplied in the user's ChatGPT conversation.
+## Security
+Telegram sessions remain stored by TDLib in the app's private data. Never enter login codes or 2FA passwords anywhere other than your own local app. Avoid publicly distributing debug APK as production software.
