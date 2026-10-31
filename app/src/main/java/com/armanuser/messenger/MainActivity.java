@@ -157,6 +157,7 @@ public final class MainActivity extends Activity {
     public final class Bridge {
         @JavascriptInterface public void ready(){telegram.onWebReady();}
         @JavascriptInterface public void saveApi(String id,String hash){telegram.saveApi(id,hash);}
+        @JavascriptInterface public void countries(){telegram.requestCountries();}
         @JavascriptInterface public void submit(String mode,String value,String extra){telegram.submit(mode,value,extra);}
         @JavascriptInterface public void chats(){telegram.listChats();}
         @JavascriptInterface public void history(String id){telegram.getHistory(id);}
