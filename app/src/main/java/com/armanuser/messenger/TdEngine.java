@@ -159,10 +159,9 @@ final class TdEngine {
     }
     void checkConnection() {
         if(client==null){ emit("connection","Telegram motoru başlatılamadı");return; }
-        client.send(new TdApi.GetConnectionState(),r -> {
-            if(r instanceof TdApi.ConnectionState)connectionUpdate((TdApi.ConnectionState)r);
-            else if(r instanceof TdApi.Error) emit("connection","Bağlantı kontrolü başarısız: "+((TdApi.Error)r).message);
-        });
+        // TDLib exposes its current connection status through UpdateConnectionState.
+        // The bound library does not provide a GetConnectionState request.
+        emit("connection",latestConnection);
         emit("authStatus", authorizationPhase);
     }
     private void onAuth(TdApi.AuthorizationState state) {
