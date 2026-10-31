@@ -35,6 +35,11 @@ final class TdEngine {
     private volatile String apiHash = "";
     private final Map<Long, TdApi.Chat> chats = Collections.synchronizedMap(new HashMap<>());
     private final Map<Long, Boolean> bots = Collections.synchronizedMap(new HashMap<>());
+    private final Map<Long, TdApi.User> cachedSenders = Collections.synchronizedMap(new HashMap<>());
+    private final Set<Long> pendingSenders = Collections.synchronizedSet(new HashSet<>());
+    private final Set<Long> pendingSenderChats = Collections.synchronizedSet(new HashSet<>());
+    private final Set<Integer> senderPhotoDownloads = Collections.synchronizedSet(new HashSet<>());
+    private final Map<Long, Integer> senderPhotoCache = Collections.synchronizedMap(new HashMap<>());
     private final Set<Integer> avatarRequests = Collections.synchronizedSet(new HashSet<>());
     private final Map<Long,Integer> currentAvatarIds=Collections.synchronizedMap(new HashMap<>());
     private static final String KEY_ALIAS = "ArmanUserTelegramApiCredentials";
@@ -83,7 +88,7 @@ final class TdEngine {
             onAuth(((TdApi.UpdateAuthorizationState)o).authorizationState);
         } else if (o instanceof TdApi.UpdateNewChat) {
             TdApi.Chat chat = ((TdApi.UpdateNewChat)o).chat;
-            chats.put(chat.id, chat); loadUserType(chat); loadAvatar(chat); publishChats();
+            chats.put(chat.id, chat); loadUserType(chat); loadAvatar(chat); publishSenderName("c:"+chat.id,chat.title); publishChats();
         } else if (o instanceof TdApi.UpdateChatLastMessage) {
             TdApi.UpdateChatLastMessage u=(TdApi.UpdateChatLastMessage)o;
             TdApi.Chat chat = chats.get(u.chatId);
@@ -91,7 +96,7 @@ final class TdEngine {
         } else if (o instanceof TdApi.UpdateChatTitle) {
             TdApi.UpdateChatTitle u=(TdApi.UpdateChatTitle)o;
             TdApi.Chat chat = chats.get(u.chatId);
-            if(chat != null){ chat.title=u.title; publishChats(); }
+            if(chat != null){ chat.title=u.title; publishSenderName("c:"+u.chatId,u.title); publishChats(); }
         } else if (o instanceof TdApi.UpdateChatPhoto) {
             TdApi.UpdateChatPhoto u=(TdApi.UpdateChatPhoto)o;
             TdApi.Chat c=chats.get(u.chatId);
@@ -108,6 +113,8 @@ final class TdEngine {
         } else if (o instanceof TdApi.UpdateUser) {
             TdApi.User user=((TdApi.UpdateUser)o).user;
             bots.put(user.id,user.type instanceof TdApi.UserTypeBot);
+            cachedSenders.put(user.id,user);
+            publishUser(user);
             publishChats();
         } else if (o instanceof TdApi.UpdateChatReadInbox) {
             TdApi.UpdateChatReadInbox u=(TdApi.UpdateChatReadInbox)o;
@@ -175,7 +182,7 @@ final class TdEngine {
         p.systemLanguageCode = "tr";
         p.deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
         p.systemVersion = Build.VERSION.RELEASE;
-        p.applicationVersion = "0.4.0";
+        p.applicationVersion = "0.6.0";
         emit("auth", "loading");
         send(p, result -> {
             if(result instanceof TdApi.Error) { awaitingParameters=true; emit("auth", "api"); }
@@ -269,9 +276,86 @@ final class TdEngine {
         if(m.content instanceof TdApi.MessageDocument) return "📎 Dosya";
         return "Mesaj";
     }
+    private void publishSenderName(String key, String displayName) {
+        try { emit(new JSONObject().put("type","sender").put("key",key).put("name",displayName)); }
+        catch(Exception ignored){}
+    }
+    private String userName(TdApi.User user) {
+        if(user==null) return "Katılımcı";
+        String first=user.firstName==null?"":user.firstName.trim();
+        String last=user.lastName==null?"":user.lastName.trim();
+        String label=(first+" "+last).trim();
+        return label.isEmpty()?"Katılımcı":label;
+    }
+    private void publishUser(TdApi.User user) {
+        publishSenderName("u:"+user.id,userName(user));
+        if(user.profilePhoto==null || user.profilePhoto.small==null || client==null) return;
+        final long uid=user.id;
+        final int fileId=user.profilePhoto.small.id;
+        Integer old=senderPhotoCache.get(uid);
+        if(fileId<=0 || (old!=null && old==fileId) || !senderPhotoDownloads.add(fileId)) return;
+        client.send(new TdApi.DownloadFile(fileId,1,0,0,true),result -> {
+            senderPhotoDownloads.remove(fileId);
+            if(!(result instanceof TdApi.File))return;
+            TdApi.File file=(TdApi.File)result;
+            if(file.local==null || !file.local.isDownloadingCompleted || file.local.path==null)return;
+            try {
+                java.io.File local=new java.io.File(file.local.path);
+                if(!local.isFile()||local.length()>150000||local.length()<10)return;
+                String encoded=Base64.encodeToString(Files.readAllBytes(local.toPath()),Base64.NO_WRAP);
+                senderPhotoCache.put(uid,fileId);
+                emit(new JSONObject().put("type","senderAvatar").put("key","u:"+uid)
+                    .put("data","data:image/jpeg;base64,"+encoded));
+            }catch(Exception ignored){}
+        });
+    }
+    private String resolveSender(TdApi.MessageSender sender, JSONObject json) throws Exception {
+        if(sender instanceof TdApi.MessageSenderUser) {
+            long uid=((TdApi.MessageSenderUser)sender).userId;
+            String key="u:"+uid;
+            json.put("senderKey",key);
+            TdApi.User user=cachedSenders.get(uid);
+            if(user!=null) return userName(user);
+            if(pendingSenders.add(uid)) {
+                send(new TdApi.GetUser(uid), result -> {
+                    pendingSenders.remove(uid);
+                    if(result instanceof TdApi.User) {
+                        TdApi.User resolved=(TdApi.User)result;
+                        cachedSenders.put(uid,resolved);
+                        publishUser(resolved);
+                    }
+                });
+            }
+            return "Katılımcı";
+        }
+        if(sender instanceof TdApi.MessageSenderChat) {
+            long chatId=((TdApi.MessageSenderChat)sender).chatId;
+            json.put("senderKey","c:"+chatId);
+            TdApi.Chat known=chats.get(chatId);
+            if(known!=null) return known.title;
+            if(pendingSenderChats.add(chatId)) {
+                send(new TdApi.GetChat(chatId), result -> {
+                    pendingSenderChats.remove(chatId);
+                    if(result instanceof TdApi.Chat) {
+                        TdApi.Chat c=(TdApi.Chat)result;
+                        publishSenderName("c:"+chatId,c.title);
+                    }
+                });
+            }
+            return "Grup yöneticisi";
+        }
+        return "Katılımcı";
+    }
     private JSONObject messageJson(TdApi.Message m) {
         JSONObject j=new JSONObject();
-        try{j.put("id",String.valueOf(m.id)); j.put("chat",String.valueOf(m.chatId));j.put("text",messageText(m));j.put("date",m.date);j.put("out",m.isOutgoing);}catch(Exception ignored){}
+        try {
+            j.put("id",String.valueOf(m.id));
+            j.put("chat",String.valueOf(m.chatId));
+            j.put("text",messageText(m));
+            j.put("date",m.date);
+            j.put("out",m.isOutgoing);
+            if(m.senderId != null) j.put("sender",resolveSender(m.senderId,j));
+        } catch(Exception ignored) {}
         return j;
     }
     void getHistory(String chatId) {
