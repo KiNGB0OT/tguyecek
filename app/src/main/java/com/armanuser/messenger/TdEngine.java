@@ -17,6 +17,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
+import java.nio.file.Files;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -32,6 +35,8 @@ final class TdEngine {
     private volatile String apiHash = "";
     private final Map<Long, TdApi.Chat> chats = Collections.synchronizedMap(new HashMap<>());
     private final Map<Long, Boolean> bots = Collections.synchronizedMap(new HashMap<>());
+    private final Set<Integer> avatarRequests = Collections.synchronizedSet(new HashSet<>());
+    private final Map<Long,Integer> currentAvatarIds=Collections.synchronizedMap(new HashMap<>());
     private static final String KEY_ALIAS = "ArmanUserTelegramApiCredentials";
 
     TdEngine(Activity activity, WebView web) {
@@ -78,7 +83,7 @@ final class TdEngine {
             onAuth(((TdApi.UpdateAuthorizationState)o).authorizationState);
         } else if (o instanceof TdApi.UpdateNewChat) {
             TdApi.Chat chat = ((TdApi.UpdateNewChat)o).chat;
-            chats.put(chat.id, chat); loadUserType(chat); publishChats();
+            chats.put(chat.id, chat); loadUserType(chat); loadAvatar(chat); publishChats();
         } else if (o instanceof TdApi.UpdateChatLastMessage) {
             TdApi.UpdateChatLastMessage u=(TdApi.UpdateChatLastMessage)o;
             TdApi.Chat chat = chats.get(u.chatId);
@@ -87,6 +92,10 @@ final class TdEngine {
             TdApi.UpdateChatTitle u=(TdApi.UpdateChatTitle)o;
             TdApi.Chat chat = chats.get(u.chatId);
             if(chat != null){ chat.title=u.title; publishChats(); }
+        } else if (o instanceof TdApi.UpdateChatPhoto) {
+            TdApi.UpdateChatPhoto u=(TdApi.UpdateChatPhoto)o;
+            TdApi.Chat c=chats.get(u.chatId);
+            if(c!=null) { c.photo=u.photo;loadAvatar(c);publishChats(); }
         } else if (o instanceof TdApi.UpdateChatUnreadMentionCount) {
             TdApi.UpdateChatUnreadMentionCount u=(TdApi.UpdateChatUnreadMentionCount)o;
             TdApi.Chat chat=chats.get(u.chatId);
@@ -217,6 +226,27 @@ final class TdEngine {
         }
         return false;
     }
+    private void loadAvatar(TdApi.Chat chat) {
+        if(chat.photo==null || chat.photo.small==null || client==null) return;
+        final int fileId=chat.photo.small.id;
+        if(fileId<=0 || (currentAvatarIds.get(chat.id)!=null && currentAvatarIds.get(chat.id)==fileId))return;
+        if(!avatarRequests.add(fileId))return;
+        final long chatId=chat.id;
+        client.send(new TdApi.DownloadFile(fileId,1,0,0,true),result -> {
+            avatarRequests.remove(fileId);
+            if(!(result instanceof TdApi.File))return;
+            TdApi.File file=(TdApi.File)result;
+            if(file.local==null || !file.local.isDownloadingCompleted || file.local.path==null)return;
+            try {
+                java.io.File localFile=new java.io.File(file.local.path);
+                if(!localFile.isFile() || localFile.length()>150000 || localFile.length()<10)return;
+                String encoded=Base64.encodeToString(Files.readAllBytes(localFile.toPath()),Base64.NO_WRAP);
+                currentAvatarIds.put(chatId,fileId);
+                JSONObject avatar=new JSONObject().put("type","avatar").put("chat",String.valueOf(chatId)).put("data","data:image/jpeg;base64,"+encoded);
+                emit(avatar);
+            } catch(Exception ignored) { }
+        });
+    }
     private void publishChats() {
         if(!ready) return;
         ArrayList<TdApi.Chat> snapshot;
@@ -225,6 +255,7 @@ final class TdEngine {
         JSONArray arr=new JSONArray(); int count=0;
         for(TdApi.Chat c:snapshot) {
             if(count++>=80)break;
+            loadAvatar(c);
             try {JSONObject item=new JSONObject(); item.put("id", String.valueOf(c.id)); item.put("title", c.title); item.put("last", c.lastMessage==null?"":messageText(c.lastMessage)); item.put("date", c.lastMessage==null?0:c.lastMessage.date); item.put("unread", c.unreadCount); item.put("mentions",c.unreadMentionCount); item.put("kind",kindOf(c)); item.put("pinned",isPinned(c)); item.put("markedUnread",c.isMarkedAsUnread); item.put("muted",c.notificationSettings!=null && c.notificationSettings.muteFor>0); arr.put(item);}catch(Exception ignored){}
         }
         try { emit(new JSONObject().put("type","chats").put("items",arr)); }catch(Exception ignored){}
