@@ -17,6 +17,42 @@ body.dark{--ar-ink:#eff5ff;--ar-muted:#a0b3cf;--ar-card:rgba(28,46,76,.82);--ar-
 .ar-overlay{position:absolute;inset:0;z-index:15;background:#0d22557a;display:flex;align-items:flex-end}.ar-sheet{margin:0 9px 8px;width:calc(100% - 18px);border-radius:26px;padding:18px 15px 21px}.ar-sheet strong{color:var(--ar-ink);font-size:15px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:9px}.ar-sheet button{display:flex;align-items:center;gap:12px;border:0;background:transparent;color:var(--ar-ink);padding:14px 7px;width:100%;font-size:14px;text-align:left;font-weight:650;border-bottom:1px solid #8dadd421}.ar-sheet button:last-child{border:0}.ar-sheet .ar-svg{color:var(--ar-blue)}
 @media(max-width:370px){.ar-brand strong{font-size:22px}.ar-folder{flex-basis:86px}.ar-folder-title{font-size:10px}.ar-row{padding:9px 8px;gap:9px}.ar-avatar{width:45px;height:45px}}
 
+
+/* v0.6: fixed header, inset-safe input and clear group sender identity */
+.ar-chathead{position:relative;z-index:5;flex:0 0 auto;min-height:67px;padding:9px 13px 11px;border-top:0;border-radius:0 0 24px 24px}
+.ar-chathead-title strong{font-size:15px;line-height:1.24}
+.ar-chathead .ar-icon{min-width:43px;min-height:43px}
+.ar-msgscroll{min-height:0;flex:1 1 0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:15px 9px 13px}
+.ar-msgstack{display:flex;flex-direction:column;gap:11px;margin-top:auto;width:100%}
+.ar-msgline{display:flex;align-items:flex-end;gap:7px;width:100%;flex-shrink:0}
+.ar-msgline.mine{justify-content:flex-end}
+.ar-msgline.other{justify-content:flex-start}
+.ar-msgline .ar-bubble{max-width:min(84%,450px);align-self:auto}
+.ar-msgline.other.group .ar-bubble{max-width:calc(100% - 45px)}
+.ar-sender-avatar{width:30px;height:30px;min-width:30px;border-radius:50%;display:grid;place-items:center;overflow:hidden;background:linear-gradient(145deg,#86b5f8,#5973d5);color:white;font-size:13px;font-weight:800;border:1px solid #ffffffad;box-shadow:0 2px 5px #45648c22}
+.ar-sender-avatar img{width:100%;height:100%;object-fit:cover}
+.ar-sender-avatar.tone1{background:linear-gradient(145deg,#ffad79,#df775b)}
+.ar-sender-avatar.tone2{background:linear-gradient(145deg,#90c4a6,#399980)}
+.ar-sender-avatar.tone3{background:linear-gradient(145deg,#db9ee9,#9674d8)}
+.ar-sender-avatar.tone4{background:linear-gradient(145deg,#f2d28b,#e59b43)}
+.ar-sender-avatar.tone5{background:linear-gradient(145deg,#85b5f8,#547fd0)}
+.ar-sender{font-size:12px;font-weight:820;line-height:1.25;margin-bottom:5px;color:#237eaa}
+.ar-sender.tone1{color:#cb7147}
+.ar-sender.tone2{color:#2b9275}
+.ar-sender.tone3{color:#9d5dc1}
+.ar-sender.tone4{color:#bd8242}
+.ar-sender.tone5{color:#4588c7}
+.dark .ar-sender.tone1{color:#ffb38b}
+.dark .ar-sender.tone2{color:#85d6b4}
+.dark .ar-sender.tone3{color:#d4a1fa}
+.dark .ar-sender.tone4{color:#e7c081}
+.dark .ar-sender.tone5{color:#99caff}
+.ar-msgline.group.other .ar-bubble{padding:10px 12px 7px}
+.ar-compose-bar{flex:0 0 auto;position:relative;z-index:5;min-height:70px;gap:9px;align-items:center;padding:10px 12px 12px;border-radius:23px 23px 0 0}
+.ar-compose-bar input{min-height:48px;height:48px;font-size:16px;line-height:1.4;padding:0 16px;touch-action:manipulation}
+.ar-compose-bar button{width:48px;height:48px;min-width:48px;min-height:48px;touch-action:manipulation}
+#ar-msgscroll:focus{outline:0}
+
 </style></head><body><div class="bg"><i class="orb"></i><i class="orb b"></i><i class="orb c"></i></div><div id="app" class="app"></div>
 <script>
 (() => {const n=window.TelegramNative;let stage='loading', current=null, title='', items=[], messages=[], q='', tab='chats', name='', dark=localStorage.getItem('arm-dark')==='1';if(dark)document.body.classList.add('dark');const root=document.getElementById('app');let toastTimer;function e(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}function icon(){return `<span class="logo">A</span>`;}function head(){return `<header class="top"><div class="brand">${icon()}<span>ArmanUser</span></div><button class="pill" id="theme">${dark?'☀️':'🌙'}</button></header>`;}function connectClicks(){const t=document.getElementById('theme');if(t)t.onclick=()=>{dark=!dark;localStorage.setItem('arm-dark',dark?'1':'0');document.body.classList.toggle('dark',dark);n.theme(dark);render();};}function notify(t){let old=document.getElementById('toast');if(old)old.remove();const x=document.createElement('div');x.className='toast';x.id='toast';x.textContent=t;root.append(x);clearTimeout(toastTimer);toastTimer=setTimeout(()=>x.remove(),4200);}
@@ -45,6 +81,7 @@ theme:'<path d="M20.5 15.5A8 8 0 0 1 8.5 3.5a8 8 0 1 0 12 12Z"/>'};
 function g(key){return '<svg class="ar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(glyphs[key]||glyphs.chat)+'</svg>';}
 const folders=[['private','Özel Sohbetler','chat'],['favorite','Favoriler','star'],['group','Gruplar','group'],['channel','Kanallar','channel'],['mention','Etiketler','mention'],['managed','Bot Yönetimi','bot'],['bot','Bot Sohbetleri','bot']];
 const avatarCache=Object.create(null);
+const senderNames=Object.create(null),senderAvatars=Object.create(null);
 let folder=localStorage.getItem('ar-folder')||'private',quick='all',descending=true;
 let favorites=new Set(),pins=new Set();
 try{favorites=new Set(JSON.parse(localStorage.getItem('ar-favorites')||'[]'));}catch(_){}
@@ -69,13 +106,63 @@ function list(){const label=(folders.find(x=>x[0]===folder)||folders[0])[1];if(t
 if(tab==='people'){const p=items.filter(x=>x.kind==='private'&&(x.title||'').toLocaleLowerCase('tr').includes(q.toLocaleLowerCase('tr'))).sort((a,b)=>(a.title||'').localeCompare(b.title||'','tr'));return `<div class="ar-shell">${arHead()}<div class="ar-section"><span>Konuştuğun kişiler</span><span>${p.length} kişi</span></div><main class="ar-list" id="ar-list">${p.map(row).join('')||empty()}</main>${nav()}</div>`;}
 if(tab==='settings')return `<div class="ar-shell">${arHead()}<div class="ar-section">Görünüm ve uygulama</div><main class="ar-list"><section class="ar-panel ar-glass"><h3>Liquid Glass</h3><p>Cam yoğunluğunu ve temayı ayarlayabilirsin.</p><div class="ar-panel-line"><span>Görünüm</span><button id="ar-theme-toggle">${dark?'Açık moda geç':'Koyu moda geç'}</button></div><div class="ar-panel-line"><span>Cam bulanıklığı</span><input id="ar-blur" type="range" min="5" max="42" value="${blur}" style="width:55%;accent-color:#1685fb"></div></section><section class="ar-panel ar-glass"><h3>Sohbet Kategorileri</h3><p>Telegram'ın gerçek özel sohbet, grup ve kanal türlerini kullanıyoruz. Favoriler ve yerel sabitlemeler cihazında saklanıyor.</p><div class="ar-panel-line"><span>Favoriler</span><b>${favorites.size}</b></div><div class="ar-panel-line"><span>Yerel sabitlemeler</span><b>${pins.size}</b></div></section><section class="ar-panel ar-glass"><h3>Telegram hesabı</h3><p>TDLib bağlantısı açık. API bilgileri cihazında Android Keystore ile şifreleniyor.</p><button class="danger" id="logout">Telegram'dan çıkış yap</button></section></main>${nav()}</div>`;
 return `<div class="ar-shell">${arHead()}<div class="ar-section">Profil</div><main class="ar-list"><section class="ar-panel ar-glass" style="text-align:center;padding:28px"><div class="ar-avatar" style="width:72px;height:72px;margin:0 auto 15px">${e((name||'?').slice(0,1))}</div><h3>${e(name||'Telegram hesabım')}</h3><p>ArmanUser Messenger v0.5</p></section><section class="ar-panel ar-glass"><h3>ARMAN AI ve Bot Yönetimi</h3><p>Bu modüller, güvenli ARMAN USERBOT PRO API bağlantısı kurulduktan sonra aktifleşecek.</p></section></main>${nav()}</div>`;}
-function conversation(){const c=items.find(x=>String(x.id)===String(current))||{title};return `<div class="ar-shell"><header class="ar-chathead ar-glass"><button class="ar-icon" id="ar-back" aria-label="Geri">${g('back')}</button>${avatar(c)}<div class="ar-chathead-title"><strong>${e(title)}</strong><small>${c.kind==='group'?'Grup':c.kind==='channel'?'Kanal':c.kind==='bot'?'Bot':'Özel sohbet'}</small></div><button id="ar-more-chat" class="ar-icon" aria-label="Sohbet seçenekleri">${g('more')}</button></header><main class="ar-msgscroll" id="ar-msgscroll"><div class="ar-msgstack">${messages.length?messages.map(x=>`<div class="ar-bubble ${x.out?'mine':''}">${!x.out&&x.sender?`<div class="ar-sender">${e(x.sender)}</div>`:''}${e(x.text||'Mesaj')}<span class="ar-msgtime">${timeFmt(x.date)}</span></div>`).join(''):'<div class="ar-empty">Mesajlar yükleniyor…</div>'}</div></main><form class="ar-compose-bar ar-glass" id="ar-compose"><input id="ar-draft" autocomplete="off" placeholder="Mesaj yaz…"><button type="submit" aria-label="Gönder">${g('send')}</button></form></div>`;}
+
+function senderTone(key){const str=String(key||'');let hash=0;for(let i=0;i<str.length;i++)hash=(hash*31+str.charCodeAt(i))>>>0;return 'tone'+(hash%5+1);}
+function messageBubble(m,isGroup){
+ const mine=!!m.out,group=!!isGroup&&!mine;
+ const key=String(m.senderKey||'');
+ const name=senderNames[key]||m.sender||'Katılımcı';
+ const tone=senderTone(key);
+ const initials=e((name||'?').trim().slice(0,1).toLocaleUpperCase('tr-TR'));
+ const avatar=group?'<div class="ar-sender-avatar '+tone+'" data-sender-avatar="'+e(key)+'">'+(senderAvatars[key]?'<img alt="" src="'+e(senderAvatars[key])+'">':initials)+'</div>':'';
+ const sender=group?'<div class="ar-sender '+tone+'" data-sender-name="'+e(key)+'">'+e(name)+'</div>':'';
+ return '<div class="ar-msgline '+(mine?'mine':'other')+(group?' group':'')+'">'+avatar+'<div class="ar-bubble '+(mine?'mine':'')+'">'+sender+e(m.text||'Mesaj')+'<span class="ar-msgtime">'+timeFmt(m.date)+'</span></div></div>';
+}
+function conversation(){
+ const c=items.find(x=>String(x.id)===String(current))||{title};
+ const isGroup=c.kind==='group';
+ return '<div class="ar-shell"><header class="ar-chathead ar-glass"><button class="ar-icon" id="ar-back" aria-label="Geri">'+g('back')+'</button>'+avatar(c)+'<div class="ar-chathead-title"><strong>'+e(title)+'</strong><small>'+(c.kind==='group'?'Grup':c.kind==='channel'?'Kanal':c.kind==='bot'?'Bot':'Özel sohbet')+'</small></div><button id="ar-more-chat" class="ar-icon" aria-label="Sohbet seçenekleri">'+g('more')+'</button></header><main class="ar-msgscroll" id="ar-msgscroll"><div class="ar-msgstack">'+(messages.length?messages.map(x=>messageBubble(x,isGroup)).join(''):'<div class="ar-empty" id="ar-history-loading">Mesajlar yükleniyor…</div>')+'</div></main><form class="ar-compose-bar ar-glass" id="ar-compose"><input id="ar-draft" type="text" autocomplete="off" autocapitalize="sentences" placeholder="Mesaj yaz…" aria-label="Mesaj yaz"><button type="submit" aria-label="Gönder">'+g('send')+'</button></form></div>';
+}
 function openChat(id){current=String(id);title=(items.find(x=>String(x.id)===current)||{}).title||'Sohbet';messages=[];render();n.history(current);}
 function sheet(id){const x=items.find(a=>String(a.id)===String(id));if(!x)return;const fav=favorites.has(String(id)),pin=pins.has(String(id));const overlay=document.createElement('div');overlay.className='ar-overlay';overlay.innerHTML=`<section class="ar-sheet ar-glass"><strong>${e(x.title)}</strong><button data-action="fav">${g('star')}${fav?'Favorilerden çıkar':'Favorilere ekle'}</button><button data-action="pin">${g('pin')}${pin?'Yerel sabitlemeyi kaldır':'Yerel olarak sabitle'}</button><button data-action="open">${g('chat')}Sohbeti aç</button><button data-action="cancel">${g('close')}Vazgeç</button></section>`;overlay.onclick=ev=>{if(ev.target===overlay)overlay.remove();};overlay.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{const a=b.dataset.action;if(a==='fav'){if(fav)favorites.delete(String(id));else favorites.add(String(id));saveLocal();}if(a==='pin'){if(pin)pins.delete(String(id));else pins.add(String(id));saveLocal();}overlay.remove();if(a==='open')openChat(id);else render();});root.append(overlay);}
 function bindRows(){document.querySelectorAll('.ar-row[data-id]').forEach(el=>{const id=String(el.dataset.id);let press,long=false,x0=0,y0=0;el.onclick=()=>{if(!long)openChat(id);long=false;};el.oncontextmenu=ev=>{ev.preventDefault();sheet(id);return false;};el.onkeydown=ev=>{if(ev.key==='Enter')openChat(id);else if(ev.key===' '){ev.preventDefault();sheet(id);}};el.addEventListener('touchstart',ev=>{long=false;x0=ev.touches[0].clientX;y0=ev.touches[0].clientY;clearTimeout(press);press=setTimeout(()=>{long=true;sheet(id);},550);},{passive:true});el.addEventListener('touchmove',ev=>{if(Math.abs(ev.touches[0].clientY-y0)>13||Math.abs(ev.touches[0].clientX-x0)>13)clearTimeout(press);},{passive:true});el.addEventListener('touchend',ev=>{clearTimeout(press);const dx=ev.changedTouches[0].clientX-x0,dy=ev.changedTouches[0].clientY-y0;if(!long&&Math.abs(dx)>78&&Math.abs(dx)>Math.abs(dy)*1.8){long=true;if(dx>0){favorites.has(id)?favorites.delete(id):favorites.add(id);}else{pins.has(id)?pins.delete(id):pins.add(id);}saveLocal();render();}if(long)setTimeout(()=>{long=false;},300);},{passive:true});el.addEventListener('touchcancel',()=>clearTimeout(press),{passive:true});});}
 function render(){if(stage!=='ready'){login();return;}const cs=document.getElementById('ar-folders'),pos=cs?cs.scrollLeft:0,old=document.getElementById('ar-list'),y=old?old.scrollTop:0;root.innerHTML=current?conversation():list();const newCats=document.getElementById('ar-folders'),newList=document.getElementById('ar-list');if(newCats)newCats.scrollLeft=pos;if(newList)newList.scrollTop=y;bindApp();}
 function bindApp(){const changeTheme=()=>{dark=!dark;localStorage.setItem('arm-dark',dark?'1':'0');document.body.classList.toggle('dark',dark);n.theme(dark);render();};for(const id of ['ar-theme','ar-theme-toggle']){const b=document.getElementById(id);if(b)b.onclick=changeTheme;}const opt=document.getElementById('ar-options');if(opt)opt.onclick=()=>{tab='settings';render();};const range=document.getElementById('ar-blur');if(range)range.oninput=()=>{blur=Number(range.value);localStorage.setItem('ar-blur',String(blur));document.documentElement.style.setProperty('--ar-blur',blur+'px');};document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;q='';current=null;render();});document.querySelectorAll('[data-folder]').forEach(b=>b.onclick=()=>{folder=b.dataset.folder;localStorage.setItem('ar-folder',folder);quick='all';q='';render();const a=document.querySelector('.ar-folder.active');if(a)a.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'});});document.querySelectorAll('[data-quick]').forEach(b=>b.onclick=()=>{quick=b.dataset.quick;render();});const s=document.getElementById('ar-sort');if(s)s.onclick=()=>{descending=!descending;render();};const search=document.getElementById('ar-search');if(search)search.oninput=ev=>{q=ev.target.value;const target=document.getElementById('ar-list');if(target){target.innerHTML=tab==='people'?items.filter(x=>x.kind==='private'&&(x.title||'').toLocaleLowerCase('tr').includes(q.toLocaleLowerCase('tr'))).map(row).join('')||empty():chatList();bindRows();}};bindRows();const b=document.getElementById('ar-back');if(b)b.onclick=()=>{current=null;messages=[];render();n.chats();};const c=document.getElementById('ar-compose');if(c)c.onsubmit=ev=>{ev.preventDefault();const input=document.getElementById('ar-draft');if(input.value.trim()){n.send(current,input.value.trim());input.value='';}};const m=document.getElementById('ar-more-chat');if(m)m.onclick=()=>sheet(current);const ms=document.getElementById('ar-msgscroll');if(ms)ms.scrollTop=ms.scrollHeight;const logout=document.getElementById('logout');if(logout)logout.onclick=()=>{if(confirm('Telegram hesabından çıkış yapılsın mı?'))n.logout();};}
-window.onTdEvent=function(v){if(v.type==='auth'){stage=v.value;if(stage!=='ready'){current=null;tab='chats';}render();}else if(v.type==='error'){notify('Telegram: '+v.value);}else if(v.type==='status'){if(stage==='otherdevice')notify(v.value);}else if(v.type==='me'){name=v.value;if(stage==='ready'&&!current&&tab==='profile')render();}else if(v.type==='chats'){items=v.items||[];if(stage==='ready'&&!current&&tab!=='settings'&&tab!=='profile')render();}else if(v.type==='history'&&String(v.chat)===String(current)){messages=v.items||[];render();}else if(v.type==='avatar'){avatarCache[String(v.chat)]=v.data;document.querySelectorAll('[data-avatar-id]').forEach(a=>{if(a.dataset.avatarId===String(v.chat))a.innerHTML='<img alt="" src="'+v.data+'">';});}else if(v.type==='message'&&String(v.chat)===String(current)){if(!messages.some(x=>x.id===v.id)){messages.push(v);render();}}};
+
+window.onTdEvent=function(v){
+ if(v.type==='auth'){stage=v.value;if(stage!=='ready'){current=null;tab='chats';}render();}
+ else if(v.type==='error'){notify('Telegram: '+v.value);}
+ else if(v.type==='status'){if(stage==='otherdevice')notify(v.value);}
+ else if(v.type==='me'){name=v.value;if(stage==='ready'&&!current&&tab==='profile')render();}
+ else if(v.type==='chats'){items=v.items||[];if(stage==='ready'&&!current&&tab!=='settings'&&tab!=='profile')render();}
+ else if(v.type==='history'&&String(v.chat)===String(current)){messages=v.items||[];render();}
+ else if(v.type==='avatar'){
+  avatarCache[String(v.chat)]=v.data;
+  document.querySelectorAll('[data-avatar-id]').forEach(a=>{if(a.dataset.avatarId===String(v.chat))a.innerHTML='<img alt="" src="'+v.data+'">';});
+ }
+ else if(v.type==='sender'){
+  const key=String(v.key||''),value=String(v.name||'Katılımcı');senderNames[key]=value;
+  document.querySelectorAll('[data-sender-name]').forEach(el=>{if(el.dataset.senderName===key)el.textContent=value;});
+  document.querySelectorAll('[data-sender-avatar]').forEach(el=>{if(el.dataset.senderAvatar===key&&!senderAvatars[key])el.textContent=value.trim().slice(0,1).toLocaleUpperCase('tr-TR');});
+ }
+ else if(v.type==='senderAvatar'){
+  const key=String(v.key||'');senderAvatars[key]=v.data;
+  document.querySelectorAll('[data-sender-avatar]').forEach(el=>{if(el.dataset.senderAvatar===key){const img=document.createElement('img');img.src=v.data;img.alt='';el.replaceChildren(img);}});
+ }
+ else if(v.type==='message'&&String(v.chat)===String(current)){
+  if(!messages.some(x=>x.id===v.id)){
+   messages.push(v);
+   const stack=document.querySelector('.ar-msgstack'),viewport=document.getElementById('ar-msgscroll');
+   if(stack&&viewport){
+    const nearBottom=viewport.scrollHeight-viewport.scrollTop-viewport.clientHeight<180;
+    const loading=document.getElementById('ar-history-loading');if(loading)loading.remove();
+    const chat=items.find(x=>String(x.id)===String(current));
+    stack.insertAdjacentHTML('beforeend',messageBubble(v,chat&&chat.kind==='group'));
+    if(nearBottom)viewport.scrollTop=viewport.scrollHeight;
+   }
+  }
+ }
+};
 window.armanBack=function(){const overlay=document.querySelector('.ar-overlay');if(overlay){overlay.remove();return true;}if(current){current=null;messages=[];render();return true;}if(stage==='ready'&&tab!=='chats'){tab='chats';render();return true;}if(stage==='ready'&&folder!=='private'){folder='private';render();return true;}return false;};
 n.theme(dark);render();n.ready();
 
