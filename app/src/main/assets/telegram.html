@@ -53,6 +53,25 @@ body.dark{--ar-ink:#eff5ff;--ar-muted:#a0b3cf;--ar-card:rgba(28,46,76,.82);--ar-
 .ar-compose-bar button{width:48px;height:48px;min-width:48px;min-height:48px;touch-action:manipulation}
 #ar-msgscroll:focus{outline:0}
 
+
+/* v0.9 usable chat composer, media tools and history */
+.ar-tools{display:flex;align-items:center;gap:5px;flex:0 0 auto;padding:5px 12px 7px;border-radius:21px 21px 0 0;min-height:42px}
+.ar-tools button{border:1px solid var(--ar-line);border-radius:14px;height:34px;min-width:34px;display:grid;place-items:center;background:var(--ar-glass);color:var(--ar-ink);font-size:17px;padding:0 8px;touch-action:manipulation}
+.ar-tools .ar-ttl{margin-left:auto;height:34px;max-width:122px;background:var(--ar-glass);border:1px solid var(--ar-line);border-radius:13px;font-size:12px;font-weight:700;color:var(--ar-ink);padding:0 7px;outline:none}
+.ar-media-palette{max-height:202px;overflow-y:auto;flex:none;border-radius:18px 18px 0 0;margin:0 10px;padding:11px;background:var(--ar-glass);border:1px solid var(--ar-line);box-shadow:0 3px 10px #4472a311}
+.ar-media-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.ar-media-grid button{border:0;border-radius:12px;min-height:43px;background:var(--ar-card);font-size:23px;color:var(--ar-ink);padding:4px;overflow:hidden;text-overflow:ellipsis}
+.ar-media-grid button.sticker{font-size:21px}
+.ar-media-grid button.gif{font-size:12px;min-width:0;max-width:100%;word-break:break-all}
+.ar-media-info{font-size:12px;color:var(--ar-muted);line-height:1.4;margin:0 0 9px}
+.ar-msgscroll{scrollbar-width:none;touch-action:pan-y}
+.ar-msgstack:empty{min-height:16px}
+.ar-pager{font-size:12px;text-align:center;padding:10px;color:var(--ar-muted)}
+.ar-unread-dot{display:grid;place-items:center}
+.ar-compose-bar{min-height:62px;padding:7px 10px 10px;border-radius:0 0 0 0}
+.ar-compose-bar input{height:48px;min-height:48px;font-size:16px;touch-action:manipulation}
+.ar-compose-bar button{width:48px;height:48px;min-width:48px;min-height:48px}
+.ar-chathead{position:relative;z-index:6;flex:none}
 </style></head><body><div class="bg"><i class="orb"></i><i class="orb b"></i><i class="orb c"></i></div><div id="app" class="app"></div>
 <script>
 (() => {const n=window.TelegramNative;let stage='loading', current=null, title='', items=[], messages=[], q='', tab='chats', name='', dark=localStorage.getItem('arm-dark')==='1';if(dark)document.body.classList.add('dark');const root=document.getElementById('app');let toastTimer;function e(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}function icon(){return `<span class="logo">A</span>`;}function head(){return `<header class="top"><div class="brand">${icon()}<span>ArmanUser</span></div><button class="pill" id="theme">${dark?'☀️':'🌙'}</button></header>`;}function connectClicks(){const t=document.getElementById('theme');if(t)t.onclick=()=>{dark=!dark;localStorage.setItem('arm-dark',dark?'1':'0');document.body.classList.toggle('dark',dark);n.theme(dark);render();};}function notify(t){let old=document.getElementById('toast');if(old)old.remove();const x=document.createElement('div');x.className='toast';x.id='toast';x.textContent=t;root.append(x);clearTimeout(toastTimer);toastTimer=setTimeout(()=>x.remove(),4200);}
@@ -82,6 +101,7 @@ function g(key){return '<svg class="ar-svg" viewBox="0 0 24 24" fill="none" stro
 const folders=[['private','Özel Sohbetler','chat'],['favorite','Favoriler','star'],['group','Gruplar','group'],['channel','Kanallar','channel'],['mention','Etiketler','mention'],['managed','Bot Yönetimi','bot'],['bot','Bot Sohbetleri','bot']];
 const avatarCache=Object.create(null);
 const senderNames=Object.create(null),senderAvatars=Object.create(null);
+let mediaPalette='',paletteItems=[],ttlSelection='0',historyOldest='0',historyBusy=false,historyExhausted=false,historyTries=0;
 let folder=localStorage.getItem('ar-folder')||'private',quick='all',descending=true;
 let favorites=new Set(),pins=new Set();
 try{favorites=new Set(JSON.parse(localStorage.getItem('ar-favorites')||'[]'));}catch(_){}
@@ -91,12 +111,12 @@ document.documentElement.style.setProperty('--ar-blur',Math.min(42,Math.max(5,bl
 const saveLocal=()=>{localStorage.setItem('ar-favorites',JSON.stringify([...favorites]));localStorage.setItem('ar-pins',JSON.stringify([...pins]));};
 const isPinned=x=>!!x.pinned||pins.has(String(x.id));
 function inFolder(x,f){if(f==='favorite')return favorites.has(String(x.id));if(f==='mention')return x.kind==='group'&&Number(x.mentions||0)>0;if(f==='managed')return false;return (x.kind||'private')===f;}
-function countFolder(f){return items.filter(x=>inFolder(x,f)).length;}
+function countFolder(f){return items.filter(x=>inFolder(x,f)).reduce((sum,x)=>sum+(f==='mention'?Number(x.mentions||0):(Number(x.unread||0)>0||x.markedUnread?1:0)),0);}
 function timeFmt(t){if(!t)return '';const d=new Date(t*1000),today=new Date();return d.toDateString()===today.toDateString()?d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('tr-TR',{day:'2-digit',month:'short'});}
 function nav(){return `<nav class="ar-bottom ar-glass">${[['chats','chat','Sohbetler'],['people','group','Kişiler'],['settings','settings','Ayarlar'],['profile','person','Profil']].map(([key,ic,t])=>`<button data-tab="${key}" class="${tab===key?'active':''}">${g(ic)}<span>${t}</span></button>`).join('')}</nav>`;}
 function arHead(){return `<header class="ar-top"><div class="ar-head"><div class="ar-logo">${g('send')}</div><div class="ar-brand"><strong>ArmanUser</strong><small>Clean. Smart. Personal.</small></div><button class="ar-icon" id="ar-theme" aria-label="Temayı değiştir">${g('theme')}</button><button class="ar-icon" id="ar-options" aria-label="Menü">${g('more')}</button></div><label class="ar-searchbar ar-glass">${g('search')}<input id="ar-search" placeholder="Sohbet ara" value="${e(q)}" aria-label="Sohbet ara">${g('tune')}</label></header>`;}
 function folderBar(){return `<div class="ar-folders" id="ar-folders">${folders.map(([id,t,ic])=>`<button class="ar-folder ${id===folder?'active':''}" data-folder="${id}" aria-pressed="${id===folder}">${g(ic)}<span class="ar-folder-title">${t}</span>${countFolder(id)?`<span class="ar-count">${Math.min(countFolder(id),999)}${countFolder(id)>999?'+':''}</span>`:''}</button>`).join('')}</div>`;}
-function quickBar(){const unread=items.filter(x=>Number(x.unread||0)>0||x.markedUnread).length;return `<div class="ar-quick">${[['all','Tümü'],['unread','Okunmamış'+(unread?' · '+unread:'')],['pinned','Sabitlenenler']].map(([key,t])=>`<button data-quick="${key}" class="${key===quick?'active':''}">${key==='pinned'?g('pin'):''}${t}</button>`).join('')}<button id="ar-sort" class="ar-sort" aria-label="Sıralama">${g('sort')}</button></div>`;}
+function quickBar(){const unread=items.filter(x=>inFolder(x,folder)&&(Number(x.unread||0)>0||x.markedUnread)).length;return `<div class="ar-quick">${[['all','Tümü'],['unread','Okunmamış'+(unread?' · '+unread:'')],['pinned','Sabitlenenler']].map(([key,t])=>`<button data-quick="${key}" class="${key===quick?'active':''}">${key==='pinned'?g('pin'):''}${t}</button>`).join('')}<button id="ar-sort" class="ar-sort" aria-label="Sıralama">${g('sort')}</button></div>`;}
 function filtered(){return items.filter(x=>inFolder(x,folder)&&((x.title||'').toLocaleLowerCase('tr').includes(q.toLocaleLowerCase('tr'))||(x.last||'').toLocaleLowerCase('tr').includes(q.toLocaleLowerCase('tr')))&& (quick==='unread'?(Number(x.unread||0)>0||x.markedUnread):quick==='pinned'?isPinned(x):true)).sort((a,b)=>isPinned(a)!==isPinned(b)?isPinned(a)?-1:1:(Number(b.date||0)-Number(a.date||0))*(descending?1:-1));}
 function avatar(x){const kind=x.kind||'private',c=e((x.title||'?').trim().slice(0,1).toLocaleUpperCase('tr'));return `<div class="ar-avatar ${kind}" data-avatar-id="${e(x.id||'')}">${avatarCache[String(x.id)]?`<img src="${avatarCache[String(x.id)]}" alt="">`:kind==='channel'?g('channel'):kind==='bot'?g('bot'):c}</div>`;}
 function empty(){let t='Burada henüz sohbet yok',s='Telegram sohbetlerin yüklendikçe bu alanda görünecek.';if(folder==='managed'){t='Bot Yönetimi';s='ARMAN USERBOT PRO bağlantısı yapıldığında botun yönettiği gruplar burada listelenecek. Henüz bağlı değil.';}else if(folder==='mention'){t='Yeni etiket bulunmuyor';s='Senden bahsedilen veya mesajına yanıt verilen grupların okunmamış bildirimleri burada gösterilir.';}else if(folder==='favorite'){t='Favorilerin boş';s='Bir sohbetin üzerine uzun basıp Favorilere Ekle seçeneğini kullanabilirsin.';}if(q){t='Eşleşme bulunamadı';s='Arama metnini veya kategoriyi değiştirebilirsin.';}else if(quick==='unread'){t='Okunmamış sohbet yok';s='Bu kategoride yeni mesaj bulunmuyor.';}else if(quick==='pinned'){t='Sabitlenen sohbet yok';s='Bir sohbete uzun basıp yerel olarak sabitleyebilirsin.';}return `<section class="ar-empty ar-glass">${g('chat')}<h3>${t}</h3><p>${s}</p></section>`;}
@@ -118,52 +138,201 @@ function messageBubble(m,isGroup){
  const sender=group?'<div class="ar-sender '+tone+'" data-sender-name="'+e(key)+'">'+e(name)+'</div>':'';
  return '<div class="ar-msgline '+(mine?'mine':'other')+(group?' group':'')+'">'+avatar+'<div class="ar-bubble '+(mine?'mine':'')+'">'+sender+e(m.text||'Mesaj')+'<span class="ar-msgtime">'+timeFmt(m.date)+'</span></div></div>';
 }
+
+const EMOJI_SET=['😀','😃','😄','😁','😂','🤣','😊','🥰','😍','😘','😎','😢','😭','😡','😱','👍','👎','❤️','💙','🔥','🎉','🙏','👏','💯','😴','😅','😉','🤔','😋','🤩','💋','🥹','😇','😈','🙃','😜','🤗','💪','🌹','🥳','💀','🫶','🤝','😏','👀','🤍','😆','🤭'];
+function toolsUI(chat){
+ const privateChat=chat.kind==='private';
+ return '<div class="ar-tools ar-glass" id="ar-tools">'
+    +'<button data-ar-media="photo" title="Fotoğraf gönder" aria-label="Fotoğraf">📷</button>'
+    +'<button data-ar-media="video" title="Video gönder" aria-label="Video">🎥</button>'
+    +'<button data-ar-media="file" title="Dosya gönder" aria-label="Dosya">📎</button>'
+    +'<button data-ar-palette="emoji" title="Emoji" aria-label="Emoji">😊</button>'
+    +'<button data-ar-palette="sticker" title="Çıkartma" aria-label="Çıkartma">🎨</button>'
+    +'<button data-ar-palette="gif" title="GIF" aria-label="GIF">GIF</button>'
+    +(privateChat?'<select id="ar-ttl" class="ar-ttl" aria-label="Süreli medya" title="Yalnızca bu sohbette göndereceğin yeni fotoğraf veya video için">'
+    +[['0','Normal'],['-1','Tek görüntüleme'],['5','5 sn'],['10','10 sn'],['30','30 sn'],['60','60 sn']].map(([v,t])=>'<option value="'+v+'" '+(ttlSelection===v?'selected':'')+'>'+t+'</option>').join('')+'</select>':'')
+    +'</div>';
+}
+function paletteUI(){
+ if(!mediaPalette)return '';
+ const text=mediaPalette==='emoji'?'Emoji seç':mediaPalette==='sticker'?'Son kullanılan çıkartmalar':"Kaydedilmiş GIF'ler";
+ const cells=mediaPalette==='emoji'
+   ?EMOJI_SET.map((symbol,i)=>'<button data-ar-emoji="'+i+'" aria-label="'+symbol+'">'+symbol+'</button>').join('')
+   :paletteItems.map(x=>'<button class="'+mediaPalette+'" data-ar-saved="'+e(x.id)+'" title="'+e(x.label||'')+'">'+(mediaPalette==='gif'?'🎞 '+e(String(x.label||'GIF').slice(0,12)):e(x.label||'🎨'))+'</button>').join('');
+ const empty=mediaPalette!=='emoji'&&!paletteItems.length?'<p class="ar-media-info">Henüz kayıtlı '+(mediaPalette==='gif'?'GIF':'çıkartma')+' bulunmuyor. Telefonundan dosya seçebilirsin.</p>':'';
+ const fromFile=mediaPalette==='emoji'?'':'<button id="ar-palette-file" style="font-size:12px;background:#2489fa;color:#fff;padding:10px;border:0;border-radius:12px;margin-top:10px">📎 Telefondan '+(mediaPalette==='gif'?'GIF':'çıkartma')+' seç</button>';
+ return '<section class="ar-media-palette" id="ar-media-palette"><p class="ar-media-info">'+text+'</p><div class="ar-media-grid">'+cells+'</div>'+empty+fromFile+'</section>';
+}
 function conversation(){
  const c=items.find(x=>String(x.id)===String(current))||{title};
- const isGroup=c.kind==='group';
- return '<div class="ar-shell"><header class="ar-chathead ar-glass"><button class="ar-icon" id="ar-back" aria-label="Geri">'+g('back')+'</button>'+avatar(c)+'<div class="ar-chathead-title"><strong>'+e(title)+'</strong><small>'+(c.kind==='group'?'Grup':c.kind==='channel'?'Kanal':c.kind==='bot'?'Bot':'Özel sohbet')+'</small></div><button id="ar-more-chat" class="ar-icon" aria-label="Sohbet seçenekleri">'+g('more')+'</button></header><main class="ar-msgscroll" id="ar-msgscroll"><div class="ar-msgstack">'+(messages.length?messages.map(x=>messageBubble(x,isGroup)).join(''):'<div class="ar-empty" id="ar-history-loading">Mesajlar yükleniyor…</div>')+'</div></main><form class="ar-compose-bar ar-glass" id="ar-compose"><input id="ar-draft" type="text" autocomplete="off" autocapitalize="sentences" placeholder="Mesaj yaz…" aria-label="Mesaj yaz"><button type="submit" aria-label="Gönder">'+g('send')+'</button></form></div>';
+ return '<div class="ar-shell"><header class="ar-chathead ar-glass"><button class="ar-icon" id="ar-back" aria-label="Geri">'+g('back')+'</button>'+avatar(c)+'<div class="ar-chathead-title"><strong>'+e(title)+'</strong><small>'+(c.kind==='group'?'Grup':c.kind==='channel'?'Kanal':c.kind==='bot'?'Bot':'Özel sohbet')+'</small></div><button id="ar-more-chat" class="ar-icon" aria-label="Sohbet seçenekleri">'+g('more')+'</button></header><main class="ar-msgscroll" id="ar-msgscroll"><div id="ar-history-pager" class="ar-pager">Mesaj geçmişi yükleniyor…</div><div class="ar-msgstack">'+(messages.length?messages.map(x=>messageBubble(x,c.kind==='group')).join(''):'')+'</div></main>'
+ +paletteUI()+toolsUI(c)
+ +'<form class="ar-compose-bar ar-glass" id="ar-compose"><input id="ar-draft" type="text" autocomplete="off" autocapitalize="sentences" placeholder="Mesaj yaz…" aria-label="Mesaj yaz"><button type="submit" aria-label="Gönder">'+g('send')+'</button></form></div>';
 }
-function openChat(id){current=String(id);title=(items.find(x=>String(x.id)===current)||{}).title||'Sohbet';messages=[];render();n.history(current);}
+function openChat(id){current=String(id);title=(items.find(x=>String(x.id)===current)||{}).title||'Sohbet';messages=[];historyBusy=true;historyExhausted=false;historyOldest='0';historyTries=0;ttlSelection='0';mediaPalette='';paletteItems=[];render();n.openChat(current);n.history(current);}
 function sheet(id){const x=items.find(a=>String(a.id)===String(id));if(!x)return;const fav=favorites.has(String(id)),pin=pins.has(String(id));const overlay=document.createElement('div');overlay.className='ar-overlay';overlay.innerHTML=`<section class="ar-sheet ar-glass"><strong>${e(x.title)}</strong><button data-action="fav">${g('star')}${fav?'Favorilerden çıkar':'Favorilere ekle'}</button><button data-action="pin">${g('pin')}${pin?'Yerel sabitlemeyi kaldır':'Yerel olarak sabitle'}</button><button data-action="open">${g('chat')}Sohbeti aç</button><button data-action="cancel">${g('close')}Vazgeç</button></section>`;overlay.onclick=ev=>{if(ev.target===overlay)overlay.remove();};overlay.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{const a=b.dataset.action;if(a==='fav'){if(fav)favorites.delete(String(id));else favorites.add(String(id));saveLocal();}if(a==='pin'){if(pin)pins.delete(String(id));else pins.add(String(id));saveLocal();}overlay.remove();if(a==='open')openChat(id);else render();});root.append(overlay);}
 function bindRows(){document.querySelectorAll('.ar-row[data-id]').forEach(el=>{const id=String(el.dataset.id);let press,long=false,x0=0,y0=0;el.onclick=()=>{if(!long)openChat(id);long=false;};el.oncontextmenu=ev=>{ev.preventDefault();sheet(id);return false;};el.onkeydown=ev=>{if(ev.key==='Enter')openChat(id);else if(ev.key===' '){ev.preventDefault();sheet(id);}};el.addEventListener('touchstart',ev=>{long=false;x0=ev.touches[0].clientX;y0=ev.touches[0].clientY;clearTimeout(press);press=setTimeout(()=>{long=true;sheet(id);},550);},{passive:true});el.addEventListener('touchmove',ev=>{if(Math.abs(ev.touches[0].clientY-y0)>13||Math.abs(ev.touches[0].clientX-x0)>13)clearTimeout(press);},{passive:true});el.addEventListener('touchend',ev=>{clearTimeout(press);const dx=ev.changedTouches[0].clientX-x0,dy=ev.changedTouches[0].clientY-y0;if(!long&&Math.abs(dx)>78&&Math.abs(dx)>Math.abs(dy)*1.8){long=true;if(dx>0){favorites.has(id)?favorites.delete(id):favorites.add(id);}else{pins.has(id)?pins.delete(id):pins.add(id);}saveLocal();render();}if(long)setTimeout(()=>{long=false;},300);},{passive:true});el.addEventListener('touchcancel',()=>clearTimeout(press),{passive:true});});}
 function render(){if(stage!=='ready'){login();return;}const cs=document.getElementById('ar-folders'),pos=cs?cs.scrollLeft:0,old=document.getElementById('ar-list'),y=old?old.scrollTop:0;root.innerHTML=current?conversation():list();const newCats=document.getElementById('ar-folders'),newList=document.getElementById('ar-list');if(newCats)newCats.scrollLeft=pos;if(newList)newList.scrollTop=y;bindApp();}
-function bindApp(){const changeTheme=()=>{dark=!dark;localStorage.setItem('arm-dark',dark?'1':'0');document.body.classList.toggle('dark',dark);n.theme(dark);render();};for(const id of ['ar-theme','ar-theme-toggle']){const b=document.getElementById(id);if(b)b.onclick=changeTheme;}const opt=document.getElementById('ar-options');if(opt)opt.onclick=()=>{tab='settings';render();};const range=document.getElementById('ar-blur');if(range)range.oninput=()=>{blur=Number(range.value);localStorage.setItem('ar-blur',String(blur));document.documentElement.style.setProperty('--ar-blur',blur+'px');};document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;q='';current=null;render();});document.querySelectorAll('[data-folder]').forEach(b=>b.onclick=()=>{folder=b.dataset.folder;localStorage.setItem('ar-folder',folder);quick='all';q='';render();const a=document.querySelector('.ar-folder.active');if(a)a.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'});});document.querySelectorAll('[data-quick]').forEach(b=>b.onclick=()=>{quick=b.dataset.quick;render();});const s=document.getElementById('ar-sort');if(s)s.onclick=()=>{descending=!descending;render();};const search=document.getElementById('ar-search');if(search)search.oninput=ev=>{q=ev.target.value;const target=document.getElementById('ar-list');if(target){target.innerHTML=tab==='people'?items.filter(x=>x.kind==='private'&&(x.title||'').toLocaleLowerCase('tr').includes(q.toLocaleLowerCase('tr'))).map(row).join('')||empty():chatList();bindRows();}};bindRows();const b=document.getElementById('ar-back');if(b)b.onclick=()=>{current=null;messages=[];render();n.chats();};const c=document.getElementById('ar-compose');if(c)c.onsubmit=ev=>{ev.preventDefault();const input=document.getElementById('ar-draft');if(input.value.trim()){n.send(current,input.value.trim());input.value='';}};const m=document.getElementById('ar-more-chat');if(m)m.onclick=()=>sheet(current);const ms=document.getElementById('ar-msgscroll');if(ms)ms.scrollTop=ms.scrollHeight;const logout=document.getElementById('logout');if(logout)logout.onclick=()=>{if(confirm('Telegram hesabından çıkış yapılsın mı?'))n.logout();};}
+
+function refreshChatRows(){
+ if(stage!=='ready'||current)return;
+ const list=document.getElementById('ar-list');
+ if(list){list.innerHTML=tab==='people'
+  ?items.filter(x=>x.kind==='private'&&(x.title||'').toLocaleLowerCase('tr').includes(q.toLocaleLowerCase('tr'))).map(row).join('')||empty()
+  :chatList();bindRows();}
+ document.querySelectorAll('[data-folder]').forEach(el=>{
+   const count=countFolder(el.dataset.folder);
+   let badge=el.querySelector('.ar-count');
+   if(count){
+      if(!badge){badge=document.createElement('span');badge.className='ar-count';el.appendChild(badge);}
+      badge.textContent=count>999?'999+':String(count);
+   }else if(badge)badge.remove();
+ });
+ document.querySelectorAll('[data-quick]').forEach(el=>{
+  if(el.dataset.quick==='unread'){
+   const unread=items.filter(x=>inFolder(x,folder)&&(Number(x.unread||0)>0||x.markedUnread)).length;
+   el.textContent='Okunmamış'+(unread?' · '+unread:'');
+  }
+ });
+ const counts=document.querySelector('.ar-section span:last-child');
+ if(counts&&tab==='chats')counts.textContent=filtered().length+' sohbet';
+}
+function scrollMessagesToBottom(){
+ const ms=document.getElementById('ar-msgscroll');if(ms)ms.scrollTop=ms.scrollHeight;
+}
+function insertHistory(itemsNew,older){
+ if(!Array.isArray(itemsNew))itemsNew=[];
+ const unique=itemsNew.filter(m=>!messages.some(v=>String(v.id)===String(m.id)));
+ const ms=document.getElementById('ar-msgscroll'),stack=document.querySelector('.ar-msgstack');
+ const wasBottom=ms&&ms.scrollHeight-ms.scrollTop-ms.clientHeight<130;
+ const oldHeight=ms?ms.scrollHeight:0;
+ if(older)messages=[...unique,...messages];else messages=unique;
+ if(stack){
+  const chat=items.find(x=>String(x.id)===String(current));
+  const html=unique.map(x=>messageBubble(x,chat&&chat.kind==='group')).join('');
+  if(older)stack.insertAdjacentHTML('afterbegin',html);
+  else stack.innerHTML=messages.map(x=>messageBubble(x,chat&&chat.kind==='group')).join('');
+  if(ms){
+   if(older)ms.scrollTop=Math.max(0,ms.scrollHeight-oldHeight);
+   else if(wasBottom || !older)ms.scrollTop=ms.scrollHeight;
+  }
+ }
+}
+function bindApp(){
+ const changeTheme=()=>{dark=!dark;localStorage.setItem('arm-dark',dark?'1':'0');document.body.classList.toggle('dark',dark);n.theme(dark);render();};
+ for(const id of ['ar-theme','ar-theme-toggle']){const b=document.getElementById(id);if(b)b.onclick=changeTheme;}
+ const opt=document.getElementById('ar-options');if(opt)opt.onclick=()=>{tab='settings';render();};
+ const range=document.getElementById('ar-blur');if(range)range.oninput=()=>{blur=Number(range.value);localStorage.setItem('ar-blur',String(blur));document.documentElement.style.setProperty('--ar-blur',blur+'px');};
+ document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;q='';current=null;render();});
+ document.querySelectorAll('[data-folder]').forEach(b=>b.onclick=()=>{folder=b.dataset.folder;localStorage.setItem('ar-folder',folder);quick='all';q='';render();const a=document.querySelector('.ar-folder.active');if(a)a.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'});});
+ document.querySelectorAll('[data-quick]').forEach(b=>b.onclick=()=>{quick=b.dataset.quick;render();});
+ const sort=document.getElementById('ar-sort');if(sort)sort.onclick=()=>{descending=!descending;render();};
+ const search=document.getElementById('ar-search');if(search)search.oninput=ev=>{q=ev.target.value;refreshChatRows();};
+ bindRows();
+ const b=document.getElementById('ar-back');if(b)b.onclick=()=>{n.closeChat(current);current=null;messages=[];render();n.chats();};
+ const c=document.getElementById('ar-compose');if(c)c.onsubmit=ev=>{
+    ev.preventDefault();const input=document.getElementById('ar-draft');
+    if(input&&input.value.trim()){n.send(current,input.value.trim());input.value='';}
+ };
+ const m=document.getElementById('ar-more-chat');if(m)m.onclick=()=>sheet(current);
+ const ms=document.getElementById('ar-msgscroll');
+ if(ms) {
+    ms.scrollTop=ms.scrollHeight;
+    ms.onscroll=()=>{
+      if(ms.scrollTop<140&&!historyBusy&&!historyExhausted&&historyOldest!=='0'){
+        historyBusy=true;n.historyOlder(current,historyOldest);
+      }
+    };
+ }
+ const logout=document.getElementById('logout');if(logout)logout.onclick=()=>{if(confirm('Telegram hesabından çıkış yapılsın mı?'))n.logout();};
+ const ttl=document.getElementById('ar-ttl');if(ttl)ttl.onchange=()=>{ttlSelection=ttl.value;};
+ document.querySelectorAll('[data-ar-media]').forEach(btn=>btn.onclick=()=>{n.pickMedia(current,btn.dataset.arMedia,Number(ttlSelection));});
+ document.querySelectorAll('[data-ar-palette]').forEach(btn=>btn.onclick=()=>{
+   const next=btn.dataset.arPalette;
+   mediaPalette=mediaPalette===next?'':next;
+   paletteItems=[];
+   togglePalette();
+   if(mediaPalette==='gif'||mediaPalette==='sticker')n.mediaPalette(mediaPalette);
+ });
+ bindPalette();
+}
+function togglePalette(){
+ const shell=document.querySelector('.ar-shell');
+ if(!shell)return;
+ const existing=document.getElementById('ar-media-palette');if(existing)existing.remove();
+ const bar=document.getElementById('ar-tools');if(!bar)return;
+ if(mediaPalette)bar.insertAdjacentHTML('beforebegin',paletteUI());
+ bindPalette();
+}
+function bindPalette(){
+ document.querySelectorAll('[data-ar-emoji]').forEach(btn=>btn.onclick=()=>{
+    const input=document.getElementById('ar-draft');if(!input)return;
+    const symbol=EMOJI_SET[Number(btn.dataset.arEmoji)];
+    const at=input.selectionStart;
+    input.value=input.value.slice(0,at)+symbol+input.value.slice(input.selectionEnd);
+    input.focus();input.setSelectionRange(at+symbol.length,at+symbol.length);
+ });
+ document.querySelectorAll('[data-ar-saved]').forEach(btn=>btn.onclick=()=>{
+   n.sendSavedMedia(current,mediaPalette,Number(btn.dataset.arSaved));
+ });
+ const fromFile=document.getElementById('ar-palette-file');
+ if(fromFile)fromFile.onclick=()=>n.pickMedia(current,mediaPalette,0);
+}
 
 window.onTdEvent=function(v){
  if(v.type==='auth'){stage=v.value;if(stage!=='ready'){current=null;tab='chats';}render();}
- else if(v.type==='error'){notify('Telegram: '+v.value);}
+ else if(v.type==='error'){notify('Telegram: '+v.value);historyBusy=false;}
  else if(v.type==='status'){if(stage==='otherdevice')notify(v.value);}
+ else if(v.type==='mediaSent'){notify('Medya gönderiliyor…');}
  else if(v.type==='me'){name=v.value;if(stage==='ready'&&!current&&tab==='profile')render();}
- else if(v.type==='chats'){items=v.items||[];if(stage==='ready'&&!current&&tab!=='settings'&&tab!=='profile')render();}
- else if(v.type==='history'&&String(v.chat)===String(current)){messages=v.items||[];render();}
+ else if(v.type==='chats'){
+   items=v.items||[];
+   // Never replace the search input or its focus on incoming Telegram updates.
+   if(stage==='ready'&&!current&&tab!=='settings'&&tab!=='profile')refreshChatRows();
+ }
+ else if((v.type==='history'||v.type==='historyOlder')&&String(v.chat)===String(current)){
+   historyBusy=false;
+   if(v.type==='history'&&!v.items?.length&&historyTries<2){
+      historyTries++;
+      setTimeout(()=>{if(current===String(v.chat)){historyBusy=true;n.history(current);}},900);
+      return;
+   }
+   historyOldest=String(v.oldest||historyOldest);
+   historyExhausted=!v.hasMore || (v.type==='historyOlder'&&!v.items?.length);
+   const pager=document.getElementById('ar-history-pager');
+   if(pager)pager.textContent=historyExhausted?'Mesaj geçmişinin başlangıcı':'Daha eski mesajlar için yukarı kaydır';
+   insertHistory(v.items||[],v.type==='historyOlder');
+ }
+ else if(v.type==='palette'){
+   if(v.kind===mediaPalette){paletteItems=v.items||[];togglePalette();}
+ }
  else if(v.type==='avatar'){
-  avatarCache[String(v.chat)]=v.data;
-  document.querySelectorAll('[data-avatar-id]').forEach(a=>{if(a.dataset.avatarId===String(v.chat))a.innerHTML='<img alt="" src="'+v.data+'">';});
+   avatarCache[String(v.chat)]=v.data;
+   document.querySelectorAll('[data-avatar-id]').forEach(a=>{if(a.dataset.avatarId===String(v.chat)){const img=document.createElement('img');img.alt='';img.src=v.data;a.replaceChildren(img);}});
  }
  else if(v.type==='sender'){
-  const key=String(v.key||''),value=String(v.name||'Katılımcı');senderNames[key]=value;
-  document.querySelectorAll('[data-sender-name]').forEach(el=>{if(el.dataset.senderName===key)el.textContent=value;});
-  document.querySelectorAll('[data-sender-avatar]').forEach(el=>{if(el.dataset.senderAvatar===key&&!senderAvatars[key])el.textContent=value.trim().slice(0,1).toLocaleUpperCase('tr-TR');});
+   const key=String(v.key||''),value=String(v.name||'Katılımcı');senderNames[key]=value;
+   document.querySelectorAll('[data-sender-name]').forEach(el=>{if(el.dataset.senderName===key)el.textContent=value;});
+   document.querySelectorAll('[data-sender-avatar]').forEach(el=>{if(el.dataset.senderAvatar===key&&!senderAvatars[key])el.textContent=value.trim().slice(0,1).toLocaleUpperCase('tr-TR');});
  }
  else if(v.type==='senderAvatar'){
-  const key=String(v.key||'');senderAvatars[key]=v.data;
-  document.querySelectorAll('[data-sender-avatar]').forEach(el=>{if(el.dataset.senderAvatar===key){const img=document.createElement('img');img.src=v.data;img.alt='';el.replaceChildren(img);}});
+   const key=String(v.key||'');senderAvatars[key]=v.data;
+   document.querySelectorAll('[data-sender-avatar]').forEach(el=>{if(el.dataset.senderAvatar===key){const img=document.createElement('img');img.src=v.data;img.alt='';el.replaceChildren(img);}});
  }
  else if(v.type==='message'&&String(v.chat)===String(current)){
-  if(!messages.some(x=>x.id===v.id)){
-   messages.push(v);
-   const stack=document.querySelector('.ar-msgstack'),viewport=document.getElementById('ar-msgscroll');
-   if(stack&&viewport){
-    const nearBottom=viewport.scrollHeight-viewport.scrollTop-viewport.clientHeight<180;
-    const loading=document.getElementById('ar-history-loading');if(loading)loading.remove();
-    const chat=items.find(x=>String(x.id)===String(current));
-    stack.insertAdjacentHTML('beforeend',messageBubble(v,chat&&chat.kind==='group'));
-    if(nearBottom)viewport.scrollTop=viewport.scrollHeight;
+   if(!messages.some(x=>x.id===v.id)){
+     messages.push(v);
+     const stack=document.querySelector('.ar-msgstack'),viewport=document.getElementById('ar-msgscroll');
+     if(stack&&viewport){
+       const nearBottom=viewport.scrollHeight-viewport.scrollTop-viewport.clientHeight<180;
+       const chat=items.find(x=>String(x.id)===String(current));
+       stack.insertAdjacentHTML('beforeend',messageBubble(v,chat&&chat.kind==='group'));
+       if(nearBottom)viewport.scrollTop=viewport.scrollHeight;
+     }
    }
-  }
  }
 };
-window.armanBack=function(){const overlay=document.querySelector('.ar-overlay');if(overlay){overlay.remove();return true;}if(current){current=null;messages=[];render();return true;}if(stage==='ready'&&tab!=='chats'){tab='chats';render();return true;}if(stage==='ready'&&folder!=='private'){folder='private';render();return true;}return false;};
+window.armanBack=function(){const overlay=document.querySelector('.ar-overlay');if(overlay){overlay.remove();return true;}if(current){n.closeChat(current);current=null;messages=[];render();return true;}if(stage==='ready'&&tab!=='chats'){tab='chats';render();return true;}if(stage==='ready'&&folder!=='private'){folder='private';render();return true;}return false;};
 n.theme(dark);render();n.ready();
 
 })();
