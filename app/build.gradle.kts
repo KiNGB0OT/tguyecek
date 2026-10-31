@@ -6,8 +6,8 @@ android {
   applicationId = "com.armanuser.messenger.telegram"
   minSdk = 26
   targetSdk = 35
-  versionCode = 5
-  versionName = "0.5.0-liquid-glass"
+  versionCode = 6
+  versionName = "0.6.0-chat-fixes"
  }
  compileOptions {
   sourceCompatibility = JavaVersion.VERSION_17
