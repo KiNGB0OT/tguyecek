@@ -160,6 +160,7 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void countries(){telegram.requestCountries();}
         @JavascriptInterface public void submit(String mode,String value,String extra){telegram.submit(mode,value,extra);}
         @JavascriptInterface public void chats(){telegram.listChats();}
+        @JavascriptInterface public void checkConnection(){telegram.checkConnection();}
         @JavascriptInterface public void history(String id){telegram.getHistory(id);}
         @JavascriptInterface public void historyOlder(String id,String oldest){telegram.getHistory(id,oldest);}
         @JavascriptInterface public void openChat(String id){telegram.openChat(id);}
