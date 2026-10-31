@@ -82,6 +82,28 @@ body.dark{--ar-ink:#eff5ff;--ar-muted:#a0b3cf;--ar-card:rgba(28,46,76,.82);--ar-
 .ar-connection-box button{min-width:94px;border:0;border-radius:13px;background:#d9eaff;color:#176cd1;font-size:12px;padding:9px;line-height:1.2;font-weight:700}
 .dark .ar-connection-box{background:rgba(32,58,95,.5);color:#d0dcf0}
 .dark .ar-connection-box button{background:#29528b;color:#eff6ff}
+
+/* v0.13 — actual Telegram image/media rendering */
+.ar-bubble-media{min-width:154px;max-width:290px;width:min(67vw,290px)}
+.ar-bubble-media .ar-sender{padding:2px 3px 0}
+.ar-media-tile{position:relative;width:100%;min-height:150px;max-height:350px;aspect-ratio:4/3;border-radius:16px;overflow:hidden;background:linear-gradient(145deg,rgba(135,182,231,.36),rgba(206,227,252,.53));border:1px solid rgba(255,255,255,.36);display:flex;align-items:center;justify-content:center}
+.ar-media-tile img{display:block;width:100%;height:100%;position:absolute;inset:0;object-fit:cover}
+.ar-media-tile.sticker{aspect-ratio:1;max-width:190px;min-height:120px;background:transparent;border:0}
+.ar-media-tile.sticker img{object-fit:contain}
+.ar-media-tile button{border:0;cursor:pointer;position:absolute;inset:0;background:transparent;color:inherit;touch-action:manipulation}
+.ar-media-tile .ar-media-icon{width:50px;height:50px;display:grid;place-items:center;background:rgba(10,38,77,.7);color:white;backdrop-filter:blur(10px);border-radius:50%;font-size:24px;pointer-events:none;position:relative}
+.ar-media-status{font-size:11px;color:var(--ar-muted);padding:7px 4px;text-align:center;pointer-events:none}
+.mine .ar-media-status{color:#e4f3ff}
+.ar-media-caption{font-size:13px;line-height:1.45;margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.ar-media-document{display:flex;align-items:center;gap:11px;min-width:150px;padding:10px 9px}
+.ar-media-document span{font-size:25px}
+.ar-media-document strong{font-size:12px;overflow-wrap:anywhere}
+.ar-media-secret{padding:16px 12px;border:1px dashed #a6b6c9;border-radius:15px;font-size:12px;line-height:1.5}
+.ar-media-viewer{position:absolute;inset:0;z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 10px;background:rgba(6,18,36,.94);color:#fff}
+.ar-media-viewer .ar-view-close{position:absolute;top:12px;right:14px;z-index:2;background:#ffffff2e;border:1px solid #ffffff50;color:white;padding:11px 16px;border-radius:20px;font-size:15px}
+.ar-media-viewer .ar-view-content{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.ar-view-content img,.ar-view-content video{max-width:100%;max-height:92%;object-fit:contain;border-radius:8px}
+.ar-view-content .ar-view-wait{font-size:13px;color:#cfdeed;text-align:center;line-height:1.7;padding:25px}
 </style></head><body><div class="bg"><i class="orb"></i><i class="orb b"></i><i class="orb c"></i></div><div id="app" class="app"></div>
 <script>
 (() => {const n=window.TelegramNative;let stage='loading', current=null, title='', items=[], messages=[], q='', tab='chats', name='', dark=localStorage.getItem('arm-dark')==='1';if(dark)document.body.classList.add('dark');const root=document.getElementById('app');let toastTimer;
@@ -222,6 +244,9 @@ function g(key){return '<svg class="ar-svg" viewBox="0 0 24 24" fill="none" stro
 const folders=[['private','Özel Sohbetler','chat'],['favorite','Favoriler','star'],['group','Gruplar','group'],['channel','Kanallar','channel'],['mention','Etiketler','mention'],['managed','Bot Yönetimi','bot'],['bot','Bot Sohbetleri','bot']];
 const avatarCache=Object.create(null);
 const senderNames=Object.create(null),senderAvatars=Object.create(null);
+const readyMedia=Object.create(null);
+const mediaRequested=new Set();
+let mediaObserver=null,openViewerId=0,openViewerKind='photo';
 let mediaPalette='',paletteItems=[],ttlSelection='0',historyOldest='0',historyBusy=false,historyExhausted=false,historyTries=0;
 let folder=localStorage.getItem('ar-folder')||'private',quick='all',descending=true;
 let favorites=new Set(),pins=new Set();
@@ -249,6 +274,34 @@ if(tab==='settings')return `<div class="ar-shell">${arHead()}<div class="ar-sect
 return `<div class="ar-shell">${arHead()}<div class="ar-section">Profil</div><main class="ar-list"><section class="ar-panel ar-glass" style="text-align:center;padding:28px"><div class="ar-avatar" style="width:72px;height:72px;margin:0 auto 15px">${e((name||'?').slice(0,1))}</div><h3>${e(name||'Telegram hesabım')}</h3><p>ArmanUser Messenger v0.5</p></section><section class="ar-panel ar-glass"><h3>ARMAN AI ve Bot Yönetimi</h3><p>Bu modüller, güvenli ARMAN USERBOT PRO API bağlantısı kurulduktan sonra aktifleşecek.</p></section></main>${nav()}</div>`;}
 
 function senderTone(key){const str=String(key||'');let hash=0;for(let i=0;i<str.length;i++)hash=(hash*31+str.charCodeAt(i))>>>0;return 'tone'+(hash%5+1);}
+
+function mediaLink(id){return 'https://media.armanuser.invalid/media/'+encodeURIComponent(String(id));}
+function displayMedia(m){
+ const kind=String(m.mediaKind||'');
+ if(!kind)return e(m.text||'Mesaj');
+ if(kind==='secret')return '<div class="ar-media-secret">⏱ Süreli medya. Gizlilik süresini koruyan özel görüntüleyici henüz uygulanmadı; önizleme otomatik açılmaz.</div>';
+ if(kind==='document')return '<div class="ar-media-document"><span>📎</span><strong>'+e(m.filename||'Belge')+'</strong></div>'+(m.caption?'<div class="ar-media-caption">'+e(m.caption)+'</div>':'');
+ if(kind==='photo'||kind==='video'||kind==='gif'||kind==='sticker'){
+   const thumb=Number(m.mediaId||0);
+   const full=Number(m.mediaFullId||thumb);
+   const placeholder=String(m.mini||'');
+   let picture='';
+   if(thumb>0){
+     const initial=readyMedia[thumb]?mediaLink(thumb):placeholder;
+     picture='<img data-media-preview="'+thumb+'" alt="'+(kind==='sticker'?'Çıkartma':'Medya önizlemesi')+'" '+(initial?'src="'+e(initial)+'"':'style="display:none"')+'>';
+   }else if(placeholder)picture='<img alt="Medya önizlemesi" src="'+e(placeholder)+'">';
+   const text=kind==='photo'?'📷 Fotoğraf':kind==='video'?'▶ Video':kind==='gif'?'🎞 GIF':'🎨 Çıkartma';
+   const icon=kind==='video'||kind==='gif'?'<span class="ar-media-icon">▶</span>':'';
+   const canView=full>0;
+   const tile='<div class="ar-media-tile '+(kind==='sticker'?'sticker':'')+'" role="group">'+picture+
+      (!picture?'<span class="ar-media-status">'+text+'</span>':'')+
+      (canView?'<button type="button" data-ar-open-media="'+full+'" data-ar-media-kind="'+kind+'" aria-label="'+text+' aç"></button>':'')+
+      icon+'</div>';
+   const caption=m.caption?'<div class="ar-media-caption">'+e(m.caption)+'</div>':'';
+   return tile+caption;
+ }
+ return e(m.text||'Mesaj');
+}
 function messageBubble(m,isGroup){
  const mine=!!m.out,group=!!isGroup&&!mine;
  const key=String(m.senderKey||'');
@@ -257,7 +310,75 @@ function messageBubble(m,isGroup){
  const initials=e((name||'?').trim().slice(0,1).toLocaleUpperCase('tr-TR'));
  const avatar=group?'<div class="ar-sender-avatar '+tone+'" data-sender-avatar="'+e(key)+'">'+(senderAvatars[key]?'<img alt="" src="'+e(senderAvatars[key])+'">':initials)+'</div>':'';
  const sender=group?'<div class="ar-sender '+tone+'" data-sender-name="'+e(key)+'">'+e(name)+'</div>':'';
- return '<div class="ar-msgline '+(mine?'mine':'other')+(group?' group':'')+'">'+avatar+'<div class="ar-bubble '+(mine?'mine':'')+'">'+sender+e(m.text||'Mesaj')+'<span class="ar-msgtime">'+timeFmt(m.date)+'</span></div></div>';
+ const media=!!m.mediaKind;
+ return '<div class="ar-msgline '+(mine?'mine':'other')+(group?' group':'')+'" data-message-id="'+e(m.id)+'">'+avatar+
+   '<div class="ar-bubble '+(mine?'mine':'')+(media?' ar-bubble-media':'')+'">'+sender+
+   displayMedia(m)+'<span class="ar-msgtime">'+timeFmt(m.date)+'</span></div></div>';
+}
+function requestMediaIfNeeded(id){
+ id=Number(id);if(!id||mediaRequested.has(id))return;
+ mediaRequested.add(id);
+ if(readyMedia[id]){showDownloadedMedia(id);return;}
+ if(n&&typeof n.requestMedia==='function')n.requestMedia(id);
+}
+function showDownloadedMedia(id){
+ id=Number(id);
+ document.querySelectorAll('[data-media-preview]').forEach(img=>{
+   if(Number(img.dataset.mediaPreview)===id){
+     img.src=mediaLink(id);img.style.display='block';
+   }
+ });
+ if(openViewerId===id)refreshMediaViewer();
+}
+function watchMedia(){
+ if(mediaObserver){mediaObserver.disconnect();mediaObserver=null;}
+ const viewport=document.getElementById('ar-msgscroll');
+ if(!viewport)return;
+ const photos=[...viewport.querySelectorAll('[data-media-preview]')];
+ if(typeof IntersectionObserver==='undefined'){
+   photos.forEach(p=>requestMediaIfNeeded(p.dataset.mediaPreview));return;
+ }
+ mediaObserver=new IntersectionObserver(entries=>{
+   for(const entry of entries){
+     if(entry.isIntersecting){
+       requestMediaIfNeeded(entry.target.dataset.mediaPreview);
+       mediaObserver.unobserve(entry.target);
+     }
+   }
+ },{root:viewport,rootMargin:'300px 0px'});
+ photos.forEach(p=>mediaObserver.observe(p));
+}
+function showMediaViewer(id,kind){
+ id=Number(id);if(!id)return;
+ openViewerId=id;openViewerKind=kind||'photo';
+ let viewer=document.getElementById('ar-media-viewer');
+ if(viewer)viewer.remove();
+ viewer=document.createElement('div');viewer.id='ar-media-viewer';viewer.className='ar-media-viewer';
+ viewer.innerHTML='<button type="button" class="ar-view-close" id="ar-view-close">Kapat ✕</button><div class="ar-view-content" id="ar-view-content"></div>';
+ document.querySelector('.ar-shell')?.appendChild(viewer);
+ viewer.querySelector('#ar-view-close').onclick=closeMediaViewer;
+ requestMediaIfNeeded(id);
+ refreshMediaViewer();
+}
+function refreshMediaViewer(){
+ const box=document.getElementById('ar-view-content');if(!box||!openViewerId)return;
+ if(!readyMedia[openViewerId]){box.innerHTML='<div class="ar-view-wait">Medya Telegram’dan indiriliyor…</div>';return;}
+ const url=mediaLink(openViewerId);
+ if(openViewerKind==='video'||openViewerKind==='gif'){
+   box.innerHTML='<video controls playsinline '+(openViewerKind==='gif'?'autoplay muted loop':'')+' src="'+url+'"></video>';
+ }else{
+   box.innerHTML='<img alt="Telegram fotoğrafı" src="'+url+'">';
+ }
+}
+function closeMediaViewer(){
+ const v=document.getElementById('ar-media-viewer');if(v)v.remove();
+ openViewerId=0;openViewerKind='';
+}
+function bindMedia(){
+ document.querySelectorAll('[data-ar-open-media]').forEach(el=>{
+  el.onclick=()=>showMediaViewer(el.dataset.arOpenMedia,el.dataset.arMediaKind);
+ });
+ watchMedia();
 }
 
 const EMOJI_SET=['😀','😃','😄','😁','😂','🤣','😊','🥰','😍','😘','😎','😢','😭','😡','😱','👍','👎','❤️','💙','🔥','🎉','🙏','👏','💯','😴','😅','😉','🤔','😋','🤩','💋','🥹','😇','😈','🙃','😜','🤗','💪','🌹','🥳','💀','🫶','🤝','😏','👀','🤍','😆','🤭'];
@@ -290,7 +411,7 @@ function conversation(){
  +paletteUI()+toolsUI(c)
  +'<form class="ar-compose-bar ar-glass" id="ar-compose"><input id="ar-draft" type="text" autocomplete="off" autocapitalize="sentences" placeholder="Mesaj yaz…" aria-label="Mesaj yaz"><button type="submit" aria-label="Gönder">'+g('send')+'</button></form></div>';
 }
-function openChat(id){current=String(id);title=(items.find(x=>String(x.id)===current)||{}).title||'Sohbet';messages=[];historyBusy=true;historyExhausted=false;historyOldest='0';historyTries=0;ttlSelection='0';mediaPalette='';paletteItems=[];render();n.openChat(current);n.history(current);}
+function openChat(id){closeMediaViewer();current=String(id);title=(items.find(x=>String(x.id)===current)||{}).title||'Sohbet';messages=[];historyBusy=true;historyExhausted=false;historyOldest='0';historyTries=0;ttlSelection='0';mediaPalette='';paletteItems=[];render();n.openChat(current);n.history(current);}
 function sheet(id){const x=items.find(a=>String(a.id)===String(id));if(!x)return;const fav=favorites.has(String(id)),pin=pins.has(String(id));const overlay=document.createElement('div');overlay.className='ar-overlay';overlay.innerHTML=`<section class="ar-sheet ar-glass"><strong>${e(x.title)}</strong><button data-action="fav">${g('star')}${fav?'Favorilerden çıkar':'Favorilere ekle'}</button><button data-action="pin">${g('pin')}${pin?'Yerel sabitlemeyi kaldır':'Yerel olarak sabitle'}</button><button data-action="open">${g('chat')}Sohbeti aç</button><button data-action="cancel">${g('close')}Vazgeç</button></section>`;overlay.onclick=ev=>{if(ev.target===overlay)overlay.remove();};overlay.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{const a=b.dataset.action;if(a==='fav'){if(fav)favorites.delete(String(id));else favorites.add(String(id));saveLocal();}if(a==='pin'){if(pin)pins.delete(String(id));else pins.add(String(id));saveLocal();}overlay.remove();if(a==='open')openChat(id);else render();});root.append(overlay);}
 function bindRows(){document.querySelectorAll('.ar-row[data-id]').forEach(el=>{const id=String(el.dataset.id);let press,long=false,x0=0,y0=0;el.onclick=()=>{if(!long)openChat(id);long=false;};el.oncontextmenu=ev=>{ev.preventDefault();sheet(id);return false;};el.onkeydown=ev=>{if(ev.key==='Enter')openChat(id);else if(ev.key===' '){ev.preventDefault();sheet(id);}};el.addEventListener('touchstart',ev=>{long=false;x0=ev.touches[0].clientX;y0=ev.touches[0].clientY;clearTimeout(press);press=setTimeout(()=>{long=true;sheet(id);},550);},{passive:true});el.addEventListener('touchmove',ev=>{if(Math.abs(ev.touches[0].clientY-y0)>13||Math.abs(ev.touches[0].clientX-x0)>13)clearTimeout(press);},{passive:true});el.addEventListener('touchend',ev=>{clearTimeout(press);const dx=ev.changedTouches[0].clientX-x0,dy=ev.changedTouches[0].clientY-y0;if(!long&&Math.abs(dx)>78&&Math.abs(dx)>Math.abs(dy)*1.8){long=true;if(dx>0){favorites.has(id)?favorites.delete(id):favorites.add(id);}else{pins.has(id)?pins.delete(id):pins.add(id);}saveLocal();render();}if(long)setTimeout(()=>{long=false;},300);},{passive:true});el.addEventListener('touchcancel',()=>clearTimeout(press),{passive:true});});}
 function render(){if(stage!=='ready'){login();return;}const cs=document.getElementById('ar-folders'),pos=cs?cs.scrollLeft:0,old=document.getElementById('ar-list'),y=old?old.scrollTop:0;root.innerHTML=current?conversation():list();const newCats=document.getElementById('ar-folders'),newList=document.getElementById('ar-list');if(newCats)newCats.scrollLeft=pos;if(newList)newList.scrollTop=y;bindApp();}
@@ -337,6 +458,7 @@ function insertHistory(itemsNew,older){
    if(older)ms.scrollTop=Math.max(0,ms.scrollHeight-oldHeight);
    else if(wasBottom || !older)ms.scrollTop=ms.scrollHeight;
   }
+  bindMedia();
  }
 }
 function bindApp(){
@@ -350,6 +472,7 @@ function bindApp(){
  const sort=document.getElementById('ar-sort');if(sort)sort.onclick=()=>{descending=!descending;render();};
  const search=document.getElementById('ar-search');if(search)search.oninput=ev=>{q=ev.target.value;refreshChatRows();};
  bindRows();
+ bindMedia();
  const b=document.getElementById('ar-back');if(b)b.onclick=()=>{n.closeChat(current);current=null;messages=[];render();n.chats();};
  const c=document.getElementById('ar-compose');if(c)c.onsubmit=ev=>{
     ev.preventDefault();const input=document.getElementById('ar-draft');
@@ -451,6 +574,19 @@ window.onTdEvent=function(v){
    if(pager)pager.textContent=historyExhausted?'Mesaj geçmişinin başlangıcı':'Daha eski mesajlar için yukarı kaydır';
    insertHistory(v.items||[],v.type==='historyOlder');
  }
+ else if(v.type==='mediaReady'){
+   const id=Number(v.fileId);
+   readyMedia[id]=true;
+   showDownloadedMedia(id);
+ }
+ else if(v.type==='mediaError'){
+   const id=Number(v.fileId);
+   mediaRequested.delete(id);
+   if(openViewerId===id){
+     const box=document.getElementById('ar-view-content');
+     if(box)box.innerHTML='<div class="ar-view-wait">Dosya indirilemedi. '+e(v.message||'Bilinmeyen hata')+'</div>';
+   }
+ }
  else if(v.type==='palette'){
    if(v.kind===mediaPalette){paletteItems=v.items||[];togglePalette();}
  }
@@ -475,12 +611,14 @@ window.onTdEvent=function(v){
        const nearBottom=viewport.scrollHeight-viewport.scrollTop-viewport.clientHeight<180;
        const chat=items.find(x=>String(x.id)===String(current));
        stack.insertAdjacentHTML('beforeend',messageBubble(v,chat&&chat.kind==='group'));
+       bindMedia();
        if(nearBottom)viewport.scrollTop=viewport.scrollHeight;
      }
    }
  }
 };
-window.armanBack=function(){const overlay=document.querySelector('.ar-overlay');if(overlay){overlay.remove();return true;}if(current){n.closeChat(current);current=null;messages=[];render();return true;}if(stage==='ready'&&tab!=='chats'){tab='chats';render();return true;}if(stage==='ready'&&folder!=='private'){folder='private';render();return true;}return false;};
+window.armanBack=function(){
+ if(openViewerId){closeMediaViewer();return true;}const overlay=document.querySelector('.ar-overlay');if(overlay){overlay.remove();return true;}if(current){n.closeChat(current);current=null;messages=[];render();return true;}if(stage==='ready'&&tab!=='chats'){tab='chats';render();return true;}if(stage==='ready'&&folder!=='private'){folder='private';render();return true;}return false;};
 n.theme(dark);render();n.ready();
 
 })();
