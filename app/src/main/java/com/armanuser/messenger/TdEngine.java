@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.HashSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Set;
 import java.nio.file.Files;
 import javax.crypto.Cipher;
@@ -33,6 +34,9 @@ final class TdEngine {
     private volatile boolean awaitingParameters;
     private volatile int apiId;
     private volatile String apiHash = "";
+    private volatile String authorizationPhase = "loading";
+    private final AtomicBoolean authorizationRequestPending = new AtomicBoolean(false);
+    private volatile boolean countryRequestPending = false;
     private final Map<Long, TdApi.Chat> chats = Collections.synchronizedMap(new HashMap<>());
     private final Map<Long, Boolean> bots = Collections.synchronizedMap(new HashMap<>());
     private final Map<Long, TdApi.User> cachedSenders = Collections.synchronizedMap(new HashMap<>());
@@ -90,6 +94,8 @@ final class TdEngine {
     void onWebReady() {
         if (ready) { emit("auth", "ready"); listChats(); }
         else if (awaitingParameters) emit("auth", "api");
+        else if ("phone".equals(authorizationPhase)) { emit("auth","phone"); requestCountries(); }
+        else if(!"loading".equals(authorizationPhase)) emit("auth",authorizationPhase);
         else emit("status", "Telegram bağlantısı hazırlanıyor…");
     }
     private void onUpdate(TdApi.Object o) {
@@ -139,12 +145,27 @@ final class TdEngine {
         }
     }
     private void onAuth(TdApi.AuthorizationState state) {
+        String phase="loading";
+        if(state instanceof TdApi.AuthorizationStateWaitPhoneNumber) phase="phone";
+        else if(state instanceof TdApi.AuthorizationStateWaitCode) phase="code";
+        else if(state instanceof TdApi.AuthorizationStateWaitPassword) phase="password";
+        else if(state instanceof TdApi.AuthorizationStateWaitEmailAddress) phase="email";
+        else if(state instanceof TdApi.AuthorizationStateWaitEmailCode) phase="emailcode";
+        else if(state instanceof TdApi.AuthorizationStateWaitRegistration) phase="register";
+        else if(state instanceof TdApi.AuthorizationStateWaitOtherDeviceConfirmation) phase="otherdevice";
+        else if(state instanceof TdApi.AuthorizationStateReady) phase="ready";
+        else if(state instanceof TdApi.AuthorizationStateWaitTdlibParameters) phase="parameters";
+        if(!phase.equals(authorizationPhase)) {
+            authorizationPhase=phase;
+            authorizationRequestPending.set(false);
+        }
         if(state instanceof TdApi.AuthorizationStateWaitTdlibParameters) {
             awaitingParameters=true;
             if(apiId>0 && apiHash.length()>5) configure();
             else emit("auth", "api");
         } else if(state instanceof TdApi.AuthorizationStateWaitPhoneNumber) {
             emit("auth", "phone");
+            requestCountries();
         } else if(state instanceof TdApi.AuthorizationStateWaitCode) {
             emit("auth", "code");
         } else if(state instanceof TdApi.AuthorizationStateWaitPassword) {
@@ -191,22 +212,89 @@ final class TdEngine {
         p.systemLanguageCode = "tr";
         p.deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
         p.systemVersion = Build.VERSION.RELEASE;
-        p.applicationVersion = "0.9.0";
+        p.applicationVersion = "0.11.0";
         emit("auth", "loading");
         send(p, result -> {
             if(result instanceof TdApi.Error) { awaitingParameters=true; emit("auth", "api"); }
         });
     }
+    void requestCountries() {
+        if(client==null || countryRequestPending)return;
+        countryRequestPending=true;
+        client.send(new TdApi.GetCountries(),result -> {
+            countryRequestPending=false;
+            if(result instanceof TdApi.Countries) {
+                JSONArray arr=new JSONArray();
+                for(TdApi.CountryInfo country:((TdApi.Countries)result).countries) {
+                    if(country==null || country.isHidden || country.callingCodes==null)continue;
+                    for(String code:country.callingCodes) {
+                        if(code==null || code.isEmpty())continue;
+                        try {
+                            arr.put(new JSONObject().put("iso",country.countryCode)
+                                .put("name",country.name).put("english",country.englishName)
+                                .put("callingCode",code));
+                        }catch(Exception ignored){}
+                    }
+                }
+                try{emit(new JSONObject().put("type","countries").put("items",arr));}
+                catch(Exception ignored){}
+            }else if(result instanceof TdApi.Error) {
+                emit("error", "Ülke listesi alınamadı; telefon numaranı +ülke koduyla doğrudan girebilirsin.");
+            }
+        });
+    }
     void submit(String mode, String value, String extra) {
         String v=value==null?"":value.trim();
-        if(v.isEmpty()) { emit("error", "Alan boş bırakılamaz"); return; }
-        switch(mode) {
-            case "phone": { TdApi.SetAuthenticationPhoneNumber a=new TdApi.SetAuthenticationPhoneNumber(); a.phoneNumber=v; send(a); break; }
-            case "code": send(new TdApi.CheckAuthenticationCode(v)); break;
-            case "password": send(new TdApi.CheckAuthenticationPassword(value)); break;
-            case "email": send(new TdApi.SetAuthenticationEmailAddress(v)); break;
-            case "emailcode": send(new TdApi.CheckAuthenticationEmailCode(new TdApi.EmailAddressAuthenticationCode(v))); break;
-            case "register": send(new TdApi.RegisterUser(v, extra==null?"":extra, false)); break;
+        if(v.isEmpty()){emit("error","Alan boş bırakılamaz");return;}
+        if(!mode.equals(authorizationPhase)){
+            emit("error","Telegram giriş aşaması değişti. Mevcut ekrandan devam et.");
+            emit("auth", authorizationPhase);
+            return;
+        }
+        if("phone".equals(mode)){
+            v=v.replaceAll("[\\s()\\-]","");
+            if(!v.matches("^\\+[1-9][0-9]{6,14}$")){
+                emit("error","Numarayı +ülke kodu ile 7–15 rakam olacak şekilde gir.");
+                return;
+            }
+        }
+        if(!authorizationRequestPending.compareAndSet(false,true)){
+            emit("authPending","Önceki giriş isteğinin yanıtı bekleniyor.");
+            return;
+        }
+        try{
+            TdApi.Function<?> request;
+            switch(mode){
+                case "phone": {
+                    TdApi.SetAuthenticationPhoneNumber a=new TdApi.SetAuthenticationPhoneNumber();
+                    a.phoneNumber=v;
+                    request=a;
+                    break;
+                }
+                case "code":request=new TdApi.CheckAuthenticationCode(v);break;
+                case "password":request=new TdApi.CheckAuthenticationPassword(value);break;
+                case "email":request=new TdApi.SetAuthenticationEmailAddress(v);break;
+                case "emailcode":request=new TdApi.CheckAuthenticationEmailCode(new TdApi.EmailAddressAuthenticationCode(v));break;
+                case "register":request=new TdApi.RegisterUser(v,extra==null?"":extra,false);break;
+                default:authorizationRequestPending.set(false);return;
+            }
+            emit("authPending","Telegram yanıtı bekleniyor…");
+            client.send(request,result -> {
+                if(result instanceof TdApi.Error){
+                    authorizationRequestPending.set(false);
+                    String error=((TdApi.Error)result).message;
+                    if(error!=null && error.contains("Another authorization query")){
+                        emit("error","Telegram önceki giriş isteğini hâlâ işliyor. Biraz sonra tekrar deneyebilirsin.");
+                    }else emit("error","Telegram giriş hatası: "+error);
+                    emit("authFailed",mode);
+                }else if(result instanceof TdApi.Ok) {
+                    emit("authPending","Telegram doğrulama aşamasına geçiliyor…");
+                }
+            });
+        }catch(Exception ex){
+            authorizationRequestPending.set(false);
+            emit("error","Giriş isteği gönderilemedi: "+ex.getMessage());
+            emit("authFailed",mode);
         }
     }
     void listChats() {
