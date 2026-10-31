@@ -1,0 +1,21 @@
+name: Remove obsolete ArmanUser beta artifacts
+on:
+  push:
+    branches: [armanuser-v011-full-stable]
+    paths: [".github/workflows/prune-old-armanuser-artifacts.yml"]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove superseded v0.3 through v0.6 beta APK archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          for id in 12903641774 12909212326 13035707334 13035599635; do
+            code=$(gh api -X DELETE "repos/KiNGB0OT/tguyecek/actions/artifacts/$id" --include 2>&1 | grep '^HTTP/' | tail -1 || true)
+            echo "Removed old artifact $id: $code"
+          done
