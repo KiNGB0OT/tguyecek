@@ -49,6 +49,15 @@ final class TdEngine {
         try {
             JSONObject saved = readCredentials();
             if (saved != null) { apiId = saved.optInt("id"); apiHash = saved.optString("hash", ""); }
+            else {
+                // Optional compile-time credentials are supplied only by the private APK build.
+                // Public source builds continue using the manual one-time API setup.
+                try {
+                    Class<?> c = Class.forName("com.armanuser.messenger.TelegramApiConfig");
+                    apiId = c.getField("API_ID").getInt(null);
+                    apiHash = (String)c.getField("API_HASH").get(null);
+                } catch (ReflectiveOperationException ignored) { }
+            }
         } catch (Exception ignored) { }
         try {
             client = Client.create(this::onUpdate, null, null);
