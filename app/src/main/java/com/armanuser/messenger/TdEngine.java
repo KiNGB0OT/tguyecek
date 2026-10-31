@@ -451,11 +451,11 @@ final class TdEngine {
             TdApi.InputFileId file=new TdApi.InputFileId(fileId);
             if("sticker".equals(kind)) {
                 TdApi.InputMessageSticker sticker=new TdApi.InputMessageSticker();
-                sticker.sticker=file;
+                sticker.sticker=new TdApi.InputSticker(file,null,0,0);
                 payload=sticker;
             }else if("gif".equals(kind)){
                 TdApi.InputMessageAnimation animation=new TdApi.InputMessageAnimation();
-                animation.animation=file;
+                animation.animation=new TdApi.InputAnimation(file,null,null,0,0,0);
                 payload=animation;
             }else{return;}
             TdApi.SendMessage request=new TdApi.SendMessage();
@@ -476,14 +476,14 @@ final class TdEngine {
             TdApi.InputMessageContent payload;
             if("photo".equals(kind)){
                 TdApi.InputMessagePhoto photo=new TdApi.InputMessagePhoto();
-                photo.photo=local;
+                photo.photo=new TdApi.InputPhoto(local,null,null,null,0,0);
                 if(ttlSeconds!=0) photo.selfDestructType = ttlSeconds==-1
                     ? new TdApi.MessageSelfDestructTypeImmediately()
                     : new TdApi.MessageSelfDestructTypeTimer(ttlSeconds);
                 payload=photo;
             }else if("video".equals(kind)){
                 TdApi.InputMessageVideo video=new TdApi.InputMessageVideo();
-                video.video=local;
+                video.video=new TdApi.InputVideo(local,null,null,0,null,0,0,0,true);
                 if(ttlSeconds!=0) video.selfDestructType = ttlSeconds==-1
                     ? new TdApi.MessageSelfDestructTypeImmediately()
                     : new TdApi.MessageSelfDestructTypeTimer(ttlSeconds);
@@ -491,15 +491,15 @@ final class TdEngine {
             }else if("gif".equals(kind)){
                 if(ttlSeconds!=0){emit("error","Süreli medya yalnızca fotoğraf veya videoda desteklenir");return;}
                 TdApi.InputMessageAnimation animation=new TdApi.InputMessageAnimation();
-                animation.animation=local;
+                animation.animation=new TdApi.InputAnimation(local,null,null,0,0,0);
                 payload=animation;
             }else if("sticker".equals(kind)){
                 TdApi.InputMessageSticker sticker=new TdApi.InputMessageSticker();
-                sticker.sticker=local;
+                sticker.sticker=new TdApi.InputSticker(local,null,0,0);
                 payload=sticker;
             }else{
                 TdApi.InputMessageDocument document=new TdApi.InputMessageDocument();
-                document.document=local;
+                document.document=new TdApi.InputDocument(local,null,false);
                 payload=document;
             }
             TdApi.SendMessage req=new TdApi.SendMessage();
