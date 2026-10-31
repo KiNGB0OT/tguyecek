@@ -31,6 +31,7 @@ final class TdEngine {
     private volatile int apiId;
     private volatile String apiHash = "";
     private final Map<Long, TdApi.Chat> chats = Collections.synchronizedMap(new HashMap<>());
+    private final Map<Long, Boolean> bots = Collections.synchronizedMap(new HashMap<>());
     private static final String KEY_ALIAS = "ArmanUserTelegramApiCredentials";
 
     TdEngine(Activity activity, WebView web) {
@@ -77,7 +78,7 @@ final class TdEngine {
             onAuth(((TdApi.UpdateAuthorizationState)o).authorizationState);
         } else if (o instanceof TdApi.UpdateNewChat) {
             TdApi.Chat chat = ((TdApi.UpdateNewChat)o).chat;
-            chats.put(chat.id, chat); publishChats();
+            chats.put(chat.id, chat); loadUserType(chat); publishChats();
         } else if (o instanceof TdApi.UpdateChatLastMessage) {
             TdApi.UpdateChatLastMessage u=(TdApi.UpdateChatLastMessage)o;
             TdApi.Chat chat = chats.get(u.chatId);
@@ -86,6 +87,19 @@ final class TdEngine {
             TdApi.UpdateChatTitle u=(TdApi.UpdateChatTitle)o;
             TdApi.Chat chat = chats.get(u.chatId);
             if(chat != null){ chat.title=u.title; publishChats(); }
+        } else if (o instanceof TdApi.UpdateChatUnreadMentionCount) {
+            TdApi.UpdateChatUnreadMentionCount u=(TdApi.UpdateChatUnreadMentionCount)o;
+            TdApi.Chat chat=chats.get(u.chatId);
+            if(chat!=null){ chat.unreadMentionCount=u.unreadMentionCount; publishChats(); }
+        } else if (o instanceof TdApi.UpdateChatPosition) {
+            TdApi.UpdateChatPosition u=(TdApi.UpdateChatPosition)o;
+            send(new TdApi.GetChat(u.chatId), result -> {
+                if(result instanceof TdApi.Chat) { chats.put(u.chatId,(TdApi.Chat)result); publishChats(); }
+            });
+        } else if (o instanceof TdApi.UpdateUser) {
+            TdApi.User user=((TdApi.UpdateUser)o).user;
+            bots.put(user.id,user.type instanceof TdApi.UserTypeBot);
+            publishChats();
         } else if (o instanceof TdApi.UpdateChatReadInbox) {
             TdApi.UpdateChatReadInbox u=(TdApi.UpdateChatReadInbox)o;
             TdApi.Chat chat = chats.get(u.chatId);
@@ -175,6 +189,34 @@ final class TdEngine {
         send(new TdApi.LoadChats(new TdApi.ChatListMain(), 80), result -> { publishChats(); });
         publishChats();
     }
+    private void loadUserType(TdApi.Chat chat) {
+        if(!(chat.type instanceof TdApi.ChatTypePrivate)) return;
+        long userId=((TdApi.ChatTypePrivate)chat.type).userId;
+        if(bots.containsKey(userId)) return;
+        send(new TdApi.GetUser(userId), result -> {
+            if(result instanceof TdApi.User) {
+                bots.put(userId,((TdApi.User)result).type instanceof TdApi.UserTypeBot);
+                publishChats();
+            }
+        });
+    }
+    private String kindOf(TdApi.Chat chat) {
+        if(chat.type instanceof TdApi.ChatTypeBasicGroup) return "group";
+        if(chat.type instanceof TdApi.ChatTypeSupergroup)
+            return ((TdApi.ChatTypeSupergroup)chat.type).isChannel ? "channel" : "group";
+        if(chat.type instanceof TdApi.ChatTypePrivate) {
+            long uid=((TdApi.ChatTypePrivate)chat.type).userId;
+            return Boolean.TRUE.equals(bots.get(uid)) ? "bot" : "private";
+        }
+        return "private";
+    }
+    private boolean isPinned(TdApi.Chat chat) {
+        if(chat.positions==null) return false;
+        for(TdApi.ChatPosition position:chat.positions) {
+            if(position!=null && position.list instanceof TdApi.ChatListMain && position.isPinned) return true;
+        }
+        return false;
+    }
     private void publishChats() {
         if(!ready) return;
         ArrayList<TdApi.Chat> snapshot;
@@ -183,7 +225,7 @@ final class TdEngine {
         JSONArray arr=new JSONArray(); int count=0;
         for(TdApi.Chat c:snapshot) {
             if(count++>=80)break;
-            try {JSONObject item=new JSONObject(); item.put("id", String.valueOf(c.id)); item.put("title", c.title); item.put("last", c.lastMessage==null?"":messageText(c.lastMessage)); item.put("date", c.lastMessage==null?0:c.lastMessage.date); item.put("unread", c.unreadCount);arr.put(item);}catch(Exception ignored){}
+            try {JSONObject item=new JSONObject(); item.put("id", String.valueOf(c.id)); item.put("title", c.title); item.put("last", c.lastMessage==null?"":messageText(c.lastMessage)); item.put("date", c.lastMessage==null?0:c.lastMessage.date); item.put("unread", c.unreadCount); item.put("mentions",c.unreadMentionCount); item.put("kind",kindOf(c)); item.put("pinned",isPinned(c)); item.put("markedUnread",c.isMarkedAsUnread); item.put("muted",c.notificationSettings!=null && c.notificationSettings.muteFor>0); arr.put(item);}catch(Exception ignored){}
         }
         try { emit(new JSONObject().put("type","chats").put("items",arr)); }catch(Exception ignored){}
     }
