@@ -1,6 +1,12 @@
-# ArmanUser Messenger v0.5 — Liquid Glass Categories
+# ArmanUser Messenger v0.6 — Chat usability fixes
 
 Android Telegram client beta using TDLib with original iOS-inspired Liquid Glass design.
+
+## v0.6 fixes
+- Group incoming messages display actual TDLib sender names, including on-behalf-of-chat senders, with initials/profile photos
+- Status/navigation bars handled using Android WindowInsets; composer stays above navigation and IME
+- Pinned chat header remains separate from message scroller
+- Incoming messages append without replacing the focused message input
 
 ## Implemented
 - Phone, verification code, 2-step password and other TDLib authentication states
@@ -17,7 +23,7 @@ Android Telegram client beta using TDLib with original iOS-inspired Liquid Glass
 - No physical-device login test; Gradle successful means builds, not functionality validation
 
 ## Build
-GitHub Actions workflow `ArmanUser Messenger v0.5 APK`. Install debug APK extracted from artifacts. The API ID is prefilled from user-supplied project settings; API Hash is never committed and must be entered once locally.
+GitHub Actions workflow `ArmanUser Messenger v0.6 APK`. Install debug APK extracted from artifacts. The API ID is prefilled from user-supplied project settings; API Hash is never committed and must be entered once locally.
 
 ## Security
 Telegram sessions remain stored by TDLib in the app's private data. Never enter login codes or 2FA passwords anywhere other than your own local app. Avoid publicly distributing debug APK as production software.
