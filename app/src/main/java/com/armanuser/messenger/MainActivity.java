@@ -12,6 +12,12 @@ import android.webkit.MimeTypeMap;
 import java.io.File;
 import java.io.InputStream;
 import java.io.FileOutputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.FilterInputStream;
+import java.util.HashMap;
+import java.util.Map;
+import android.webkit.WebResourceResponse;
 import java.util.UUID;
 import android.os.Bundle;
 import android.os.Build;
@@ -146,6 +152,47 @@ public final class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req){return true;}
             @Override public void onPageFinished(WebView v,String url){telegram.onWebReady();}
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest req){
+                Uri uri=req.getUrl();
+                if(!"https".equals(uri.getScheme())||!"media.armanuser.invalid".equals(uri.getHost()))
+                    return super.shouldInterceptRequest(v,req);
+                if(!"/media".equals(uri.getPathSegments().size()>0?"/"+uri.getPathSegments().get(0):""))return notFound();
+                try{
+                    if(uri.getPathSegments().size()!=2)return notFound();
+                    String idString=uri.getLastPathSegment();
+                    if(idString==null||!idString.matches("[0-9]{1,10}"))return notFound();
+                    int id=Integer.parseInt(idString);
+                    File file=telegram.safeMediaFile(id);
+                    if(file==null)return notFound();
+                    long length=file.length(),start=0,end=length-1;
+                    if(length<=0)return notFound();
+                    String range=req.getRequestHeaders().get("Range");
+                    boolean partial=false;
+                    if(range!=null && range.startsWith("bytes=")){
+                        String[] tokens=range.substring(6).split("-",2);
+                        if(tokens.length==2 && !tokens[0].isEmpty()){
+                            start=Long.parseLong(tokens[0]);
+                            if(!tokens[1].isEmpty())end=Long.parseLong(tokens[1]);
+                            partial=true;
+                        }
+                    }
+                    if(start<0||start>=length)return notFound();
+                    end=Math.min(end,length-1);
+                    if(end<start)return notFound();
+                    FileInputStream input=new FileInputStream(file);
+                    skipFully(input,start);
+                    long bodyLength=end-start+1;
+                    Map<String,String> headers=new HashMap<>();
+                    headers.put("Content-Length",String.valueOf(bodyLength));
+                    headers.put("Accept-Ranges","bytes");
+                    headers.put("Access-Control-Allow-Origin","*");
+                    headers.put("Cache-Control","private, no-store");
+                    headers.put("X-Content-Type-Options","nosniff");
+                    if(partial)headers.put("Content-Range","bytes "+start+"-"+end+"/"+length);
+                    return new WebResourceResponse(telegram.mediaMime(id),null,partial?206:200,
+                        partial?"Partial Content":"OK",headers,new LimitStream(input,bodyLength));
+                }catch(Exception ignored){return notFound();}
+            }
         });
         frame = new FrameLayout(this);
         frame.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
@@ -153,6 +200,33 @@ public final class MainActivity extends Activity {
         installInsets(frame);
         syncSystemBars();
         web.loadUrl("file:///android_asset/telegram.html");
+    }
+    private static final class LimitStream extends FilterInputStream {
+        private long remaining;
+        LimitStream(InputStream input,long n){super(input);remaining=n;}
+        @Override public int read() throws IOException{
+            if(remaining<=0)return -1;
+            int v=super.read();if(v!=-1)remaining--;return v;
+        }
+        @Override public int read(byte[] b,int off,int len) throws IOException{
+            if(remaining<=0)return -1;
+            int count=super.read(b,off,(int)Math.min(len,remaining));
+            if(count>0)remaining-=count;
+            return count;
+        }
+    }
+    private static void skipFully(InputStream input,long amount) throws IOException {
+        long remaining=amount;
+        while(remaining>0){
+            long skipped=input.skip(remaining);
+            if(skipped<=0)throw new IOException("Media seek failed");
+            remaining-=skipped;
+        }
+    }
+    private static WebResourceResponse notFound(){
+        return new WebResourceResponse("text/plain","UTF-8",404,"Not Found",
+            java.util.Collections.singletonMap("Cache-Control","no-store"),
+            new java.io.ByteArrayInputStream(new byte[0]));
     }
     public final class Bridge {
         @JavascriptInterface public void ready(){telegram.onWebReady();}
@@ -175,6 +249,7 @@ public final class MainActivity extends Activity {
         }
         @JavascriptInterface public void pickMedia(String id,String kind,int ttl){chooseMedia(id,kind,ttl);}
         @JavascriptInterface public void mediaPalette(String kind){telegram.loadMediaPalette(kind);}
+        @JavascriptInterface public void requestMedia(int fileId){telegram.requestMedia(fileId);}
         @JavascriptInterface public void sendSavedMedia(String id,String kind,int fileId){telegram.sendSavedMedia(id,kind,fileId);}
         @JavascriptInterface public void send(String id,String message){telegram.sendText(id,message);}
         @JavascriptInterface public void logout(){telegram.logout();}
