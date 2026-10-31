@@ -21,6 +21,19 @@ jobs:
           gradle-version: '8.9'
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Check embedded JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          page = Path('app/src/main/assets/telegram.html').read_text(encoding='utf-8')
+          match = re.search(r'<script>(.*?)</script>', page, re.S)
+          assert match, 'Missing embedded JavaScript'
+          assert 'senderAvatar' in match.group(1), 'Sender avatars missing'
+          assert 'data-sender-name' in match.group(1), 'Sender name labels missing'
+          Path('/tmp/armanuser-ui.js').write_text(match.group(1), encoding='utf-8')
+          PY
+          node --check /tmp/armanuser-ui.js
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
       - uses: actions/upload-artifact@v4
