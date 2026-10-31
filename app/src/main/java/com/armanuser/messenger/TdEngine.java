@@ -18,6 +18,8 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.HashSet;
+import java.io.File;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Set;
 import java.nio.file.Files;
@@ -48,6 +50,155 @@ final class TdEngine {
     private final Set<Integer> avatarRequests = Collections.synchronizedSet(new HashSet<>());
     private final Map<Long,Integer> currentAvatarIds=Collections.synchronizedMap(new HashMap<>());
     private static final String KEY_ALIAS = "ArmanUserTelegramApiCredentials";
+    // Only file IDs originating from the current TDLib session are served to the WebView.
+    private final Map<Integer,String> mediaTypes = new ConcurrentHashMap<>();
+    private final Map<Integer,String> mediaPaths = new ConcurrentHashMap<>();
+    private final Set<Integer> pendingMedia = ConcurrentHashMap.newKeySet();
+
+    private void registerMedia(TdApi.File file,String mime) {
+        if(file == null || file.id <= 0)return;
+        mediaTypes.put(file.id,mime);
+        if(file.local != null && file.local.isDownloadingCompleted && file.local.path != null
+                && !file.local.path.isEmpty()) {
+            mediaPaths.put(file.id,file.local.path);
+            reportMediaReady(file.id);
+        }
+    }
+    private void reportMediaReady(int id) {
+        try {
+            emit(new JSONObject().put("type","mediaReady")
+               .put("fileId",id).put("mime",mediaTypes.getOrDefault(id,"application/octet-stream")));
+        }catch(Exception ignored){}
+    }
+    private void mediaFileUpdate(TdApi.File file) {
+        if(file==null || !mediaTypes.containsKey(file.id))return;
+        if(file.local != null && file.local.isDownloadingCompleted &&
+                file.local.path != null && !file.local.path.isEmpty()) {
+            mediaPaths.put(file.id,file.local.path);
+            if(pendingMedia.remove(file.id))reportMediaReady(file.id);
+        }
+    }
+    void requestMedia(int id) {
+        if(client==null || id<=0 || !mediaTypes.containsKey(id))return;
+        if(mediaPaths.containsKey(id)){reportMediaReady(id);return;}
+        if(!pendingMedia.add(id))return;
+        client.send(new TdApi.DownloadFile(id,7,0,0,true), result -> {
+            if(result instanceof TdApi.File) {
+                mediaFileUpdate((TdApi.File)result);
+            } else if(result instanceof TdApi.Error) {
+                pendingMedia.remove(id);
+                try{
+                    emit(new JSONObject().put("type","mediaError").put("fileId",id)
+                        .put("message",((TdApi.Error)result).message));
+                }catch(Exception ignored){}
+            }
+        });
+    }
+    File safeMediaFile(int id) {
+        try {
+            if(!mediaTypes.containsKey(id))return null;
+            String source=mediaPaths.get(id);
+            if(source==null)return null;
+            File file=new File(source).getCanonicalFile();
+            if(!file.isFile())return null;
+            String actual=file.getPath();
+            String privateFiles=activity.getFilesDir().getCanonicalPath()+File.separator;
+            String privateCache=activity.getCacheDir().getCanonicalPath()+File.separator;
+            if(!actual.startsWith(privateFiles) && !actual.startsWith(privateCache))return null;
+            return file;
+        }catch(Exception ignored){return null;}
+    }
+    String mediaMime(int id){return mediaTypes.getOrDefault(id,"application/octet-stream");}
+
+    private static String minithumbnail(TdApi.Minithumbnail mini) {
+        if(mini==null || mini.data==null || mini.data.length==0 || mini.data.length>16000)return "";
+        return "data:image/jpeg;base64,"+Base64.encodeToString(mini.data,Base64.NO_WRAP);
+    }
+    private boolean isSecretContent(TdApi.MessageContent content) {
+        // Self-destructing media must not be cached through this generic preview route.
+        try{
+            java.lang.reflect.Field f=content.getClass().getField("isSecret");
+            return f.getType()==boolean.class && f.getBoolean(content);
+        }catch(Exception ignored){return false;}
+    }
+    private void attachMedia(TdApi.Message m, JSONObject j) throws Exception {
+        if(m.content instanceof TdApi.MessagePhoto){
+            TdApi.MessagePhoto v=(TdApi.MessagePhoto)m.content;
+            if(isSecretContent(v)){j.put("mediaKind","secret");return;}
+            TdApi.Photo photo=v.photo;
+            j.put("mediaKind","photo");
+            if(photo!=null) {
+                j.put("mini",minithumbnail(photo.minithumbnail));
+                TdApi.PhotoSize thumb=null,full=null;
+                if(photo.sizes!=null)for(TdApi.PhotoSize size:photo.sizes){
+                    if(size==null || size.photo==null)continue;
+                    int area=Math.max(1,size.width)*Math.max(1,size.height);
+                    if(full==null || area>Math.max(1,full.width)*Math.max(1,full.height))full=size;
+                    if(area<=512*512 && (thumb==null || area>Math.max(1,thumb.width)*Math.max(1,thumb.height)))thumb=size;
+                }
+                if(thumb==null)thumb=full;
+                if(thumb!=null){j.put("mediaId",thumb.photo.id);registerMedia(thumb.photo,"image/jpeg");}
+                if(full!=null){j.put("mediaFullId",full.photo.id);registerMedia(full.photo,"image/jpeg");}
+            }
+            if(v.caption!=null)j.put("caption",v.caption.text);
+        }else if(m.content instanceof TdApi.MessageVideo){
+            TdApi.MessageVideo v=(TdApi.MessageVideo)m.content;
+            if(isSecretContent(v)){j.put("mediaKind","secret");return;}
+            j.put("mediaKind","video");
+            if(v.video!=null){
+                if(v.video.thumbnail!=null && v.video.thumbnail.file!=null){
+                    j.put("mediaId",v.video.thumbnail.file.id);
+                    registerMedia(v.video.thumbnail.file,"image/jpeg");
+                }
+                if(v.video.video!=null){
+                    j.put("mediaFullId",v.video.video.id);
+                    registerMedia(v.video.video,"video/mp4");
+                }
+                j.put("duration",v.video.duration);
+                if(v.video.minithumbnail!=null)j.put("mini",minithumbnail(v.video.minithumbnail));
+            }
+            if(v.caption!=null)j.put("caption",v.caption.text);
+        }else if(m.content instanceof TdApi.MessageAnimation){
+            TdApi.MessageAnimation v=(TdApi.MessageAnimation)m.content;
+            j.put("mediaKind","gif");
+            if(v.animation!=null){
+                if(v.animation.thumbnail!=null && v.animation.thumbnail.file!=null){
+                    j.put("mediaId",v.animation.thumbnail.file.id);
+                    registerMedia(v.animation.thumbnail.file,"image/jpeg");
+                }
+                if(v.animation.animation!=null){
+                    j.put("mediaFullId",v.animation.animation.id);
+                    registerMedia(v.animation.animation,"video/mp4");
+                }
+                if(v.animation.minithumbnail!=null)j.put("mini",minithumbnail(v.animation.minithumbnail));
+            }
+            if(v.caption!=null)j.put("caption",v.caption.text);
+        }else if(m.content instanceof TdApi.MessageSticker){
+            TdApi.MessageSticker v=(TdApi.MessageSticker)m.content;
+            j.put("mediaKind","sticker");
+            if(v.sticker!=null){
+                j.put("stickerEmoji",v.sticker.emoji);
+                if(v.sticker.thumbnail!=null && v.sticker.thumbnail.file!=null){
+                    j.put("mediaId",v.sticker.thumbnail.file.id);
+                    registerMedia(v.sticker.thumbnail.file,"image/webp");
+                }else if(v.sticker.sticker!=null){
+                    j.put("mediaId",v.sticker.sticker.id);
+                    registerMedia(v.sticker.sticker,"image/webp");
+                }
+            }
+        }else if(m.content instanceof TdApi.MessageDocument){
+            TdApi.MessageDocument v=(TdApi.MessageDocument)m.content;
+            j.put("mediaKind","document");
+            if(v.document!=null){
+                j.put("filename",v.document.fileName);
+                if(v.document.thumbnail!=null && v.document.thumbnail.file!=null){
+                    j.put("mediaId",v.document.thumbnail.file.id);
+                    registerMedia(v.document.thumbnail.file,"image/jpeg");
+                }
+            }
+            if(v.caption!=null)j.put("caption",v.caption.text);
+        }
+    }
 
     TdEngine(Activity activity, WebView web) {
         this.activity = activity; this.web = web;
@@ -136,6 +287,8 @@ final class TdEngine {
             TdApi.UpdateChatReadInbox u=(TdApi.UpdateChatReadInbox)o;
             TdApi.Chat chat = chats.get(u.chatId);
             if(chat != null){ chat.unreadCount=u.unreadCount; publishChats(); }
+        } else if (o instanceof TdApi.UpdateFile) {
+            mediaFileUpdate(((TdApi.UpdateFile)o).file);
         } else if (o instanceof TdApi.UpdateNewMessage) {
             TdApi.Message msg=((TdApi.UpdateNewMessage)o).message;
             JSONObject obj = messageJson(msg);
@@ -232,7 +385,7 @@ final class TdEngine {
         p.systemLanguageCode = "tr";
         p.deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
         p.systemVersion = Build.VERSION.RELEASE;
-        p.applicationVersion = "0.12.0";
+        p.applicationVersion = "0.13.0";
         emit("auth", "loading");
         send(p, result -> {
             if(result instanceof TdApi.Error) { awaitingParameters=true; emit("auth", "api"); }
@@ -479,6 +632,7 @@ final class TdEngine {
             j.put("date",m.date);
             j.put("out",m.isOutgoing);
             if(m.senderId != null) j.put("sender",resolveSender(m.senderId,j));
+            attachMedia(m,j);
         } catch(Exception ignored) {}
         return j;
     }
